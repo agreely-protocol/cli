@@ -1,0 +1,44 @@
+{
+  "name": "@agreely/cli",
+  "version": "0.1.0",
+  "description": "The Agreely CLI — a one-call consent gate for humans (interactive) and agents (scriptable JSON). A thin shell over @agreely/sdk.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "agreely": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup && chmod +x dist/bin.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run test/unit",
+    "test:unit": "vitest run test/unit",
+    "test:contract": "vitest run test/contract",
+    "test:all": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@agreely/sdk": "file:../sdk",
+    "@clack/prompts": "^0.7.0",
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "eslint": "^9.17.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.8"
+  }
+}
