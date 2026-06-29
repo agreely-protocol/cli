@@ -34,7 +34,7 @@ export async function loginCommand(ctx: Context): Promise<void> {
 
   const baseUrl = await prompts.text({
     message: "API base URL",
-    placeholder: "https://api.agreely.org",
+    placeholder: "https://api.agreely.ca",
     defaultValue: "",
   });
   if (prompts.isCancel(baseUrl)) {

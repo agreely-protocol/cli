@@ -13,7 +13,7 @@ export async function whoamiCommand(ctx: Context): Promise<void> {
   const catalog = await client.catalog.list();
 
   const masked = maskApiKey(auth.apiKey);
-  const baseUrl = auth.baseUrl ?? "https://api.agreely.org";
+  const baseUrl = auth.baseUrl ?? "https://api.agreely.ca";
 
   if (ctx.agent) {
     emitJson(ctx, {

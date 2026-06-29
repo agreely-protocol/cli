@@ -112,7 +112,7 @@ validates each, and confirms before issuing.
 ```
 
 Base URL: `--base-url` > `AGREELY_BASE_URL` > the stored config > the SDK default
-(`https://api.agreely.org`). `keytar` is an optional native module; if it is
+(`https://api.agreely.ca`). `keytar` is an optional native module; if it is
 absent or unavailable, `login` / `config set` fall back to the `0600` config file.
 
 ## Degrade / outage
