@@ -2,6 +2,10 @@
 // The @clack/prompts mock THROWS on any call, so any test that reaches a prompt
 // fails loudly — that is how we prove agent mode never prompts.
 
+import { createHash } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgreelyAuthError,
@@ -21,6 +25,10 @@ const h = vi.hoisted(() => ({
   create: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
+  record: vi.fn(),
+  claimLink: vi.fn(),
+  revoke: vi.fn(),
+  erase: vi.fn(),
   ctor: vi.fn(),
 }));
 
@@ -28,6 +36,7 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof AgreelySdk>();
   class FakeAgreely {
     consentRequests = { create: h.create, list: h.list, get: h.get };
+    manualConsents = { record: h.record, createClaimLink: h.claimLink, revoke: h.revoke, erase: h.erase };
     catalog = { list: h.catalogList };
     checkDetailed = h.checkDetailed;
     constructor(opts: unknown) {
@@ -289,5 +298,141 @@ describe("request create maps flags to the SDK input (raw category/purpose)", ()
     );
     const [, opts] = h.create.mock.calls[0] as [unknown, { idempotencyKey?: string }];
     expect(opts).toEqual({ idempotencyKey: "key-123" });
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("manual-consent create: local PDF hashing (data minimization)", () => {
+  const recorded = {
+    consentId: "mc_1",
+    merkleRoot: "0x" + "1".repeat(64),
+    consentRefs: ["0x" + "a".repeat(64)],
+    assurance: "company_attested",
+    anchored: false,
+  };
+  const PDF_BYTES = Buffer.from("%PDF-1.7 signed consent bytes");
+  const EXPECTED_SHA = "0x" + createHash("sha256").update(PDF_BYTES).digest("hex");
+
+  function writePdf(): string {
+    const dir = mkdtempSync(join(tmpdir(), "agreely-mc-"));
+    const path = join(dir, "consent.pdf");
+    writeFileSync(path, PDF_BYTES);
+    return path;
+  }
+
+  it("computes the SHA-256 locally and sends ONLY the hash (no bytes) by default", async () => {
+    h.record.mockResolvedValue(recorded);
+    const pdf = writePdf();
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv(
+        "manual-consent",
+        "create",
+        "--customer",
+        "cust-1",
+        "--document-version",
+        "doc-9",
+        "--effective-date",
+        "2026-06-01",
+        "--valid-until",
+        "2031-01-01",
+        "--item",
+        "Email Address:Marketing Outreach",
+        "--item",
+        "cat-uuid-123",
+        "--pdf",
+        pdf,
+        "--json",
+      ),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    expect(h.record).toHaveBeenCalledTimes(1);
+    const [input] = h.record.mock.calls[0] as [Record<string, unknown>];
+    expect(input).toEqual({
+      customerId: "cust-1",
+      documentVersionId: "doc-9",
+      effectiveDate: "2026-06-01",
+      validUntil: "2031-01-01",
+      items: [{ category: "Email Address", purpose: "Marketing Outreach" }, "cat-uuid-123"],
+      evidence: { pdfSha256: EXPECTED_SHA },
+    });
+    expect(JSON.parse(io.out().trim())).toEqual(recorded);
+  });
+
+  it("uploads the bytes (base64) ONLY when --upload is passed", async () => {
+    h.record.mockResolvedValue(recorded);
+    const pdf = writePdf();
+    const io = makeIo({ env: ENV });
+    await run(
+      argv(
+        "manual-consent",
+        "create",
+        "--customer",
+        "c",
+        "--document-version",
+        "d",
+        "--effective-date",
+        "2026-06-01",
+        "--valid-until",
+        "2031-01-01",
+        "--item",
+        "x:y",
+        "--pdf",
+        pdf,
+        "--upload",
+        "--json",
+      ),
+      io.io,
+    );
+    const [input] = h.record.mock.calls[0] as [{ evidence: { pdfSha256: string; pdf?: string } }];
+    expect(input.evidence.pdfSha256).toBe(EXPECTED_SHA);
+    expect(input.evidence.pdf).toBe(PDF_BYTES.toString("base64"));
+  });
+
+  it("a missing required flag errors (exit 2) and NEVER prompts or calls the SDK", async () => {
+    const io = makeIo({ env: ENV, isTTY: false });
+    const code = await run(argv("manual-consent", "create", "--customer", "c"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(io.err()).not.toContain("PROMPTED");
+    expect(h.record).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("manual-consent claim-link / revoke", () => {
+  it("claim-link posts the customer and prints the link JSON", async () => {
+    const link = { claimUrl: "https://x/claim/abc", token: "tok_abc", expiresAt: "2026-07-01T00:00:00Z" };
+    h.claimLink.mockResolvedValue(link);
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv("manual-consent", "claim-link", "--customer", "cust-1", "--reference", "order-99", "--json"),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    const [input] = h.claimLink.mock.calls[0] as [Record<string, unknown>];
+    expect(input).toEqual({ customerId: "cust-1", reference: "order-99" });
+    expect(JSON.parse(io.out().trim())).toEqual(link);
+  });
+
+  it("revoke is keyed on the consentRef and forwards the reason", async () => {
+    const ref = "0x" + "a".repeat(64);
+    h.revoke.mockResolvedValue({ consentRef: ref, revoked: true, alreadyRevoked: false });
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv("manual-consent", "revoke", ref, "--reason", "withdrawn", "--json"),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    const [consentRef, opts] = h.revoke.mock.calls[0] as [string, { reason?: string }];
+    expect(consentRef).toBe(ref);
+    expect(opts).toEqual({ reason: "withdrawn" });
+  });
+
+  it("revoke rejects a non-0x consentRef (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("manual-consent", "revoke", "not-a-ref", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.revoke).not.toHaveBeenCalled();
   });
 });

@@ -69,6 +69,9 @@ agreely catalog [--json]
 agreely requests [--status pending|approved|refused|expired|revoked_before_action] [--cursor <id>] [--json]
 agreely request create [--customer <id> --to <email> --item <catalogId|category:purpose> ... --valid-until <YYYY-MM-DD>] [--idempotency-key <k>] [--json]
 agreely request show <requestId> [--json]      # requestId is 0x + 64 hex
+agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> --item <catalogId|category:purpose> ... --pdf <path> [--upload] [--json]
+agreely manual-consent claim-link --customer <id> [--reference <ref>] [--json]
+agreely manual-consent revoke <consentRef> [--reason <text>] [--json]
 agreely whoami [--json]
 agreely login                                  # interactive: store a key in the OS keychain
 agreely config set --api-key <k> [--base-url <url>]   # non-interactive store (for scripts)
@@ -101,6 +104,26 @@ replay returns the original request, with no double-issue and no double-email.
 Interactive (human) — run it with no flags at a TTY and a wizard picks cells
 from `catalog`, then collects the customer, recipient email, and valid-until,
 validates each, and confirms before issuing.
+
+### `manual-consent`
+
+The offline (company-attested) path: record a consent you gathered out of band
+(a signed PDF) under your company's attestation. The result carries
+`assurance: "company_attested"` (the live citizen flow yields `citizen_signed`).
+
+```sh
+agreely manual-consent create \
+  --customer cust-42 --document-version 4b08… \
+  --effective-date 2026-06-01 --valid-until 2031-01-01 \
+  --item "Email Address:Marketing Outreach" --item 4b082452-… \
+  --pdf ./signed-consent.pdf --json
+# -> {"consentId":"…","merkleRoot":"0x…","consentRefs":["0x…"],"assurance":"company_attested","anchored":false}
+```
+
+The PDF is hashed **locally** (`0x` + SHA-256); only that commitment is sent. The
+file bytes leave the machine **only** when you pass `--upload`. Hand the subject a
+self-claim link with `manual-consent claim-link --customer <id>`, and revoke an
+attestation with `manual-consent revoke <consentRef> [--reason <text>]`.
 
 ## Auth precedence
 

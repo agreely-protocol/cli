@@ -9,6 +9,11 @@ import { catalogCommand } from "./commands/catalog.js";
 import { requestCreateCommand } from "./commands/request-create.js";
 import { requestsCommand } from "./commands/requests.js";
 import { requestShowCommand } from "./commands/request-show.js";
+import {
+  manualConsentClaimLinkCommand,
+  manualConsentCreateCommand,
+  manualConsentRevokeCommand,
+} from "./commands/manual-consent.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { configSetCommand, loginCommand } from "./commands/login.js";
 import type { CredentialStore } from "./config.js";
@@ -146,6 +151,77 @@ export async function run(
       .argument("<requestId>", "the protocol requestId (0x + 64 hex)"),
   ).action(async (requestId: string, _o, cmd: Command) => {
     await requestShowCommand(ctxFor(cmd), requestId);
+  });
+
+  // The manual / offline (company-attested) consent surface (scope: 'attest').
+  const manualConsent = program
+    .command("manual-consent")
+    .description("Record an offline (company-attested) consent, mint a claim link, or revoke one");
+
+  withGlobals(
+    manualConsent
+      .command("create")
+      .description("Record a manual consent (the PDF is hashed locally; bytes upload only with --upload)")
+      .option("--customer <id>", "the subject reference")
+      .option("--document-version <id>", "the signed document version the consent attests to")
+      .option("--effective-date <date>", "when the consent took effect (YYYY-MM-DD)")
+      .option("--valid-until <date>", "the consent lifespan (YYYY-MM-DD)")
+      .option(
+        "--item <item>",
+        "a catalog id OR category:purpose (repeatable)",
+        (val: string, prev: string[]) => [...prev, val],
+        [] as string[],
+      )
+      .option("--pdf <path>", "path to the signed PDF (its SHA-256 is computed locally)")
+      .option("--upload", "also upload the PDF bytes (off by default; only the hash is sent)"),
+  ).action(
+    async (
+      opts: {
+        customer?: string;
+        documentVersion?: string;
+        effectiveDate?: string;
+        validUntil?: string;
+        item?: string[];
+        pdf?: string;
+        upload?: boolean;
+      },
+      cmd: Command,
+    ) => {
+      await manualConsentCreateCommand(ctxFor(cmd), {
+        ...(opts.customer !== undefined ? { customer: opts.customer } : {}),
+        ...(opts.documentVersion !== undefined ? { documentVersion: opts.documentVersion } : {}),
+        ...(opts.effectiveDate !== undefined ? { effectiveDate: opts.effectiveDate } : {}),
+        ...(opts.validUntil !== undefined ? { validUntil: opts.validUntil } : {}),
+        ...(opts.item !== undefined && opts.item.length > 0 ? { item: opts.item } : {}),
+        ...(opts.pdf !== undefined ? { pdf: opts.pdf } : {}),
+        ...(opts.upload !== undefined ? { upload: opts.upload } : {}),
+      });
+    },
+  );
+
+  withGlobals(
+    manualConsent
+      .command("claim-link")
+      .description("Mint a claim link the subject can use to self-claim the attestation")
+      .option("--customer <id>", "the subject reference")
+      .option("--reference <ref>", "an optional company-side reference to stamp on the claim"),
+  ).action(async (opts: { customer?: string; reference?: string }, cmd: Command) => {
+    await manualConsentClaimLinkCommand(ctxFor(cmd), {
+      ...(opts.customer !== undefined ? { customer: opts.customer } : {}),
+      ...(opts.reference !== undefined ? { reference: opts.reference } : {}),
+    });
+  });
+
+  withGlobals(
+    manualConsent
+      .command("revoke")
+      .description("Revoke a manual consent by its 0x-hex consentRef")
+      .argument("<consentRef>", "the protocol consentRef (0x + hex)")
+      .option("--reason <text>", "an optional operator reason recorded with the revocation"),
+  ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
+    await manualConsentRevokeCommand(ctxFor(cmd), consentRef, {
+      ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+    });
   });
 
   withGlobals(
