@@ -5,15 +5,20 @@ The Agreely consent gate as a command line tool. One binary, two modes:
 - **Humans** get colored output and an interactive wizard (a TTY).
 - **Agents** get pure JSON on stdout and stable exit codes (a pipe or `--json`).
 
-It is a thin shell over [`@agreely/sdk`](../sdk): the CLI never reimplements the
+It is a thin shell over [`@agreely/sdk`](https://github.com/ophelios-studio/agreely-sdk): the CLI never reimplements the
 HTTP, decision, or normalization logic — it resolves auth, picks a mode, calls
 the SDK, and maps the result to an exit code.
 
 ## Install / build
 
+Until `@agreely/sdk` is published to npm, the CLI consumes it via a local path
+(`file:../agreely-sdk/ts`). Check out the [`agreely-sdk`](https://github.com/ophelios-studio/agreely-sdk)
+repo as a **sibling** of this one and build its TS package first:
+
 ```sh
-make cli-build          # from the repo root: installs deps + builds dist/bin.js
-# or, in cli/:
+# siblings: ./agreely-cli and ./agreely-sdk
+(cd ../agreely-sdk/ts && npm install && npm run build)
+
 npm install && npm run build
 node dist/bin.js --help
 ```
