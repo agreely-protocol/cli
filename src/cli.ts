@@ -8,6 +8,7 @@ import { checkCommand } from "./commands/check.js";
 import { catalogCommand } from "./commands/catalog.js";
 import { requestCreateCommand } from "./commands/request-create.js";
 import { requestsCommand } from "./commands/requests.js";
+import { requestCancelCommand } from "./commands/request-cancel.js";
 import { requestShowCommand } from "./commands/request-show.js";
 import { requestWaitCommand } from "./commands/request-wait.js";
 import { verifyCommand } from "./commands/verify.js";
@@ -154,6 +155,15 @@ export async function run(
       .argument("<requestId>", "the protocol requestId (0x + 64 hex)"),
   ).action(async (requestId: string, _o, cmd: Command) => {
     await requestShowCommand(ctxFor(cmd), requestId);
+  });
+
+  withGlobals(
+    request
+      .command("cancel")
+      .description("Cancel a pending consent request by its 0x+64hex requestId (idempotent)")
+      .argument("<requestId>", "the protocol requestId (0x + 64 hex)"),
+  ).action(async (requestId: string, _o, cmd: Command) => {
+    await requestCancelCommand(ctxFor(cmd), requestId);
   });
 
   withGlobals(
