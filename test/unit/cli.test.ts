@@ -242,16 +242,17 @@ describe("auth precedence: flag > env > keychain > config", () => {
 });
 
 // -----------------------------------------------------------------------------
-describe("request create maps flags to the SDK input (raw category/purpose)", () => {
+describe("request create maps flags to the SDK input (bound consent document)", () => {
   const issued = {
     requestId: "0x" + "a".repeat(64),
     status: "pending",
     deepLink: "http://x",
     emailDelivered: true,
     items: [],
+    document: { code: "terms", name: "Terms", version: "1.0" },
   };
 
-  it("passes a {category,purpose} pair RAW and a catalog id as a string", async () => {
+  it("passes --document as consentDocumentId and never an items list", async () => {
     h.create.mockResolvedValue(issued);
     const io = makeIo({ env: ENV });
     const code = await run(
@@ -262,10 +263,8 @@ describe("request create maps flags to the SDK input (raw category/purpose)", ()
         "cust-1",
         "--to",
         "ops@acme.example",
-        "--item",
-        "Email Address:Marketing Outreach",
-        "--item",
-        "cat-uuid-123",
+        "--document",
+        "6a1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
         "--valid-until",
         "2030-01-01",
         "--json",
@@ -278,9 +277,49 @@ describe("request create maps flags to the SDK input (raw category/purpose)", ()
     expect(input).toEqual({
       customerId: "cust-1",
       recipientEmail: "ops@acme.example",
-      items: [{ category: "Email Address", purpose: "Marketing Outreach" }, "cat-uuid-123"],
+      consentDocumentId: "6a1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
       validUntil: "2030-01-01",
     });
+  });
+
+  it("passes --document-code as documentCode", async () => {
+    h.create.mockResolvedValue(issued);
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv(
+        "request",
+        "create",
+        "--customer",
+        "cust-1",
+        "--to",
+        "ops@acme.example",
+        "--document-code",
+        "conditions-marketing",
+        "--valid-until",
+        "2030-01-01",
+        "--json",
+      ),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    const [input] = h.create.mock.calls[0] as [Record<string, unknown>, unknown];
+    expect(input).toEqual({
+      customerId: "cust-1",
+      recipientEmail: "ops@acme.example",
+      documentCode: "conditions-marketing",
+      validUntil: "2030-01-01",
+    });
+  });
+
+  it("errors (exit 2) without a --document/--document-code and never calls the SDK", async () => {
+    const io = makeIo({ env: ENV, isTTY: false });
+    const code = await run(
+      argv("request", "create", "--customer", "c", "--to", "a@b.co", "--valid-until", "2030-01-01"),
+      io.io,
+    );
+    expect(code).toBe(EXIT.USAGE);
+    expect(io.err()).toContain("--document");
+    expect(h.create).not.toHaveBeenCalled();
   });
 
   it("forwards --idempotency-key to the SDK create options", async () => {
@@ -294,8 +333,8 @@ describe("request create maps flags to the SDK input (raw category/purpose)", ()
         "c",
         "--to",
         "a@b.co",
-        "--item",
-        "x:y",
+        "--document-code",
+        "terms",
         "--valid-until",
         "2030-01-01",
         "--idempotency-key",

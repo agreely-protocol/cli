@@ -116,15 +116,11 @@ export async function run(
   withGlobals(
     request
       .command("create")
-      .description("Issue a consent request (wizard for humans; flags for scripts)")
+      .description("Issue a consent request under a published consent document (wizard for humans; flags for scripts)")
       .option("--customer <id>", "the subject reference")
       .option("--to <email>", "the recipient's email")
-      .option(
-        "--item <item>",
-        "a catalog id OR category:purpose (repeatable)",
-        (val: string, prev: string[]) => [...prev, val],
-        [] as string[],
-      )
+      .option("--document <versionId>", "the published consent document version id the request is issued under")
+      .option("--document-code <code>", "a consent document code (resolves to its published version)")
       .option("--valid-until <date>", "consent lifespan if approved (YYYY-MM-DD)")
       .option("--idempotency-key <key>", "reuse to make a retry safe (no double-issue)"),
   ).action(
@@ -132,7 +128,8 @@ export async function run(
       opts: {
         customer?: string;
         to?: string;
-        item?: string[];
+        document?: string;
+        documentCode?: string;
         validUntil?: string;
         idempotencyKey?: string;
       },
@@ -141,7 +138,8 @@ export async function run(
       await requestCreateCommand(ctxFor(cmd), {
         ...(opts.customer !== undefined ? { customer: opts.customer } : {}),
         ...(opts.to !== undefined ? { to: opts.to } : {}),
-        ...(opts.item !== undefined && opts.item.length > 0 ? { item: opts.item } : {}),
+        ...(opts.document !== undefined ? { document: opts.document } : {}),
+        ...(opts.documentCode !== undefined ? { documentCode: opts.documentCode } : {}),
         ...(opts.validUntil !== undefined ? { validUntil: opts.validUntil } : {}),
         ...(opts.idempotencyKey !== undefined ? { idempotencyKey: opts.idempotencyKey } : {}),
       });

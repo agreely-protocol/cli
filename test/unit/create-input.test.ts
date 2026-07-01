@@ -38,34 +38,50 @@ describe("buildCreateInput", () => {
   const ok = {
     customer: "cust-1",
     to: "ops@acme.example",
-    item: ["Email Address:Marketing Outreach", "cat-uuid"],
+    document: "6a1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
     validUntil: "2030-01-01",
   };
 
-  it("maps complete flags to a CreateConsentRequestInput", () => {
+  it("maps complete flags (--document) to a CreateConsentRequestInput", () => {
     expect(buildCreateInput(ok)).toEqual({
       customerId: "cust-1",
       recipientEmail: "ops@acme.example",
-      items: [{ category: "Email Address", purpose: "Marketing Outreach" }, "cat-uuid"],
+      consentDocumentId: "6a1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
+      validUntil: "2030-01-01",
+    });
+  });
+
+  it("maps --document-code to documentCode", () => {
+    const rest = { customer: ok.customer, to: ok.to, validUntil: ok.validUntil };
+    expect(buildCreateInput({ ...rest, documentCode: "conditions-marketing" })).toEqual({
+      customerId: "cust-1",
+      recipientEmail: "ops@acme.example",
+      documentCode: "conditions-marketing",
       validUntil: "2030-01-01",
     });
   });
 
   it("requires --customer", () => {
-    expect(() => buildCreateInput({ to: ok.to, item: ok.item, validUntil: ok.validUntil })).toThrow(/--customer/);
+    expect(() => buildCreateInput({ to: ok.to, document: ok.document, validUntil: ok.validUntil })).toThrow(/--customer/);
   });
 
   it("requires a valid --to email", () => {
-    expect(() => buildCreateInput({ customer: ok.customer, item: ok.item, validUntil: ok.validUntil })).toThrow(/--to/);
+    expect(() => buildCreateInput({ customer: ok.customer, document: ok.document, validUntil: ok.validUntil })).toThrow(/--to/);
     expect(() => buildCreateInput({ ...ok, to: "not-an-email" })).toThrow(/valid email/);
   });
 
   it("requires --valid-until in YYYY-MM-DD", () => {
-    expect(() => buildCreateInput({ customer: ok.customer, to: ok.to, item: ok.item })).toThrow(/--valid-until/);
+    expect(() => buildCreateInput({ customer: ok.customer, to: ok.to, document: ok.document })).toThrow(/--valid-until/);
     expect(() => buildCreateInput({ ...ok, validUntil: "01/01/2030" })).toThrow(/YYYY-MM-DD/);
   });
 
-  it("requires at least one --item", () => {
-    expect(() => buildCreateInput({ ...ok, item: [] })).toThrow(/--item/);
+  it("requires a --document or --document-code (a document-less issuance is refused locally)", () => {
+    const rest = { customer: ok.customer, to: ok.to, validUntil: ok.validUntil };
+    expect(() => buildCreateInput(rest)).toThrow(/--document/);
+    expect(() => buildCreateInput({ ...rest, document: "  " })).toThrow(/--document/);
+  });
+
+  it("rejects passing BOTH --document and --document-code", () => {
+    expect(() => buildCreateInput({ ...ok, documentCode: "terms" })).toThrow(/not both/);
   });
 });

@@ -1,7 +1,12 @@
 // Pure mapping from CLI flags to the SDK's CreateConsentRequestInput. Kept apart
-// from the command so it is trivially unit-testable. category/purpose are NEVER
-// normalized here — a "category:purpose" item is split on the FIRST colon and
-// passed through raw; the server resolves it against the declared catalog.
+// from the command so it is trivially unit-testable. Every consent request is
+// issued under a PUBLISHED consent document (the Law 25 s. 8 disclosure):
+// exactly one of --document (a version id) / --document-code is required, and
+// the requested (category, purpose) items derive from the document server-side.
+//
+// parseItem stays for the manual-consent path, which still resolves items
+// against its signed document's grid: a "category:purpose" value is split on
+// the FIRST colon and passed through raw; the server resolves it.
 
 import type { CreateConsentRequestInput, IssueItem } from "@agreely/sdk";
 import { UsageError } from "./errors.js";
@@ -9,7 +14,8 @@ import { UsageError } from "./errors.js";
 export interface CreateFlags {
   customer?: string;
   to?: string;
-  item?: string[];
+  document?: string;
+  documentCode?: string;
   validUntil?: string;
 }
 
@@ -17,8 +23,9 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Parse one --item value. With a colon -> a raw {category, purpose} pair (split
- * on the first colon only). Without -> a catalog entry id (an opaque string).
+ * Parse one --item value (manual-consent path). With a colon -> a raw
+ * {category, purpose} pair (split on the first colon only). Without -> a
+ * catalog entry id (an opaque string).
  */
 export function parseItem(raw: string): IssueItem {
   const idx = raw.indexOf(":");
@@ -48,11 +55,21 @@ export function buildCreateInput(flags: CreateFlags): CreateConsentRequestInput 
   if (!validUntil) throw new UsageError("--valid-until <YYYY-MM-DD> is required.");
   if (!DATE_RE.test(validUntil)) throw new UsageError(`--valid-until "${validUntil}" must be YYYY-MM-DD.`);
 
-  const rawItems = flags.item ?? [];
-  if (rawItems.length === 0) {
-    throw new UsageError("At least one --item <catalogId|category:purpose> is required.");
+  const documentId = flags.document?.trim() ?? "";
+  const documentCode = flags.documentCode?.trim() ?? "";
+  if (documentId === "" && documentCode === "") {
+    throw new UsageError(
+      "--document <versionId> or --document-code <code> is required: every consent request is issued under a published consent document.",
+    );
   }
-  const items = rawItems.map(parseItem);
+  if (documentId !== "" && documentCode !== "") {
+    throw new UsageError("Pass either --document or --document-code, not both.");
+  }
 
-  return { customerId, recipientEmail, items, validUntil };
+  return {
+    customerId,
+    recipientEmail,
+    validUntil,
+    ...(documentId !== "" ? { consentDocumentId: documentId } : { documentCode }),
+  };
 }

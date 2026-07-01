@@ -72,7 +72,7 @@ writes a `{"error":{"code","message"}}` envelope to stderr.
 agreely check <customerId> <category> <purpose> [--json]
 agreely catalog [--json]
 agreely requests [--status pending|approved|refused|expired|revoked_before_action] [--cursor <id>] [--json]
-agreely request create [--customer <id> --to <email> --item <catalogId|category:purpose> ... --valid-until <YYYY-MM-DD>] [--idempotency-key <k>] [--json]
+agreely request create [--customer <id> --to <email> (--document <versionId> | --document-code <code>) --valid-until <YYYY-MM-DD>] [--idempotency-key <k>] [--json]
 agreely request show <requestId> [--json]      # requestId is 0x + 64 hex
 agreely request cancel <requestId> [--json]    # cancel a pending request (idempotent)
 agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> --item <catalogId|category:purpose> ... --pdf <path> [--upload] [--json]
@@ -98,18 +98,22 @@ Scriptable (agent) — every required flag present, no prompts:
 ```sh
 agreely request create \
   --customer cust-42 --to ops@acme.example \
-  --item "Email Address:Marketing Outreach" --item 4b082452-… \
+  --document 4b082452-… \
   --valid-until 2030-01-01 --idempotency-key issue-2026-001 --json
-# -> the IssuedRequest: {"requestId":"0x…","status":"pending","deepLink":"…",…}
+# -> the IssuedRequest: {"requestId":"0x…","status":"pending","deepLink":"…","document":{…},…}
 ```
 
-An `--item` is either a catalog entry id, or `category:purpose` (split on the
-first colon, passed raw). Reuse `--idempotency-key` to make a retry safe — a
-replay returns the original request, with no double-issue and no double-email.
+Every request is issued under a **published consent document** (the Law 25 s. 8
+disclosure): pass `--document <versionId>` or `--document-code <code>` (one, not
+both — find them under Consent documents in the company workspace). The
+requested (category, purpose) items derive from the document server-side; there
+is no `--item` flag on this command. Reuse `--idempotency-key` to make a retry
+safe — a replay returns the original request, with no double-issue and no
+double-email.
 
-Interactive (human) — run it with no flags at a TTY and a wizard picks cells
-from `catalog`, then collects the customer, recipient email, and valid-until,
-validates each, and confirms before issuing.
+Interactive (human) — run it with no flags at a TTY and a wizard collects the
+document reference, customer, recipient email, and valid-until, validates each,
+and confirms before issuing.
 
 ### `manual-consent`
 

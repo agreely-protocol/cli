@@ -1,33 +1,35 @@
 // agreely request create
 //
 //   Agent / scriptable:
-//     --customer <id> --to <email> --item <id|cat:purpose> [--item ...]
+//     --customer <id> --to <email> (--document <versionId> | --document-code <code>)
 //     --valid-until <YYYY-MM-DD> [--json] [--idempotency-key <k>]
 //
-//   Human (a TTY, no scriptable flags): an interactive wizard — catalog.list()
-//   to pick cells, then customer, recipient email, valid-until, with validation
-//   and a final confirm. Agent mode NEVER prompts.
+//   Human (a TTY, no scriptable flags): an interactive wizard — the published
+//   consent document reference (the Law 25 s. 8 disclosure the request is
+//   issued under; find it under Consent documents in the company workspace),
+//   then customer, recipient email, valid-until, with validation and a final
+//   confirm. Agent mode NEVER prompts.
+//
+//   The requested (category, purpose) items derive from the bound document
+//   server-side; there is no --item flag on this command.
 
 import * as prompts from "@clack/prompts";
-import type {
-  Agreely,
-  CatalogEntry,
-  CreateConsentRequestInput,
-  IssuedRequest,
-} from "@agreely/sdk";
+import type { CreateConsentRequestInput, IssuedRequest } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { buildCreateInput, type CreateFlags } from "../create-input.js";
 import { UsageError } from "../errors.js";
-import { emitJson, emitLine, note, pc } from "../output.js";
+import { emitJson, emitLine, pc } from "../output.js";
 
 export interface CreateCommandFlags extends CreateFlags {
   idempotencyKey?: string;
 }
 
 function hasScriptableFlags(flags: CreateCommandFlags): boolean {
-  return Boolean(flags.customer || flags.to || flags.validUntil || (flags.item && flags.item.length > 0));
+  return Boolean(flags.customer || flags.to || flags.validUntil || flags.document || flags.documentCode);
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function requestCreateCommand(ctx: Context, flags: CreateCommandFlags): Promise<void> {
   const { client } = await buildClient(ctx);
@@ -38,7 +40,7 @@ export async function requestCreateCommand(ctx: Context, flags: CreateCommandFla
     input = buildCreateInput(flags);
   } else {
     // A human at a TTY with no flags: the interactive wizard.
-    const collected = await runWizard(ctx, client);
+    const collected = await runWizard();
     if (collected === null) return; // cancelled
     input = collected;
   }
@@ -56,6 +58,7 @@ export async function requestCreateCommand(ctx: Context, flags: CreateCommandFla
   emitLine(ctx, `${pc.green("✓")} Consent request issued`);
   emitLine(ctx, `  ${pc.bold("requestId")}  ${created.requestId}`);
   emitLine(ctx, `  ${pc.bold("status")}     ${created.status}`);
+  emitLine(ctx, `  ${pc.bold("document")}   ${created.document.name} v${created.document.version} (${created.document.code})`);
   emitLine(ctx, `  ${pc.bold("email")}      ${created.emailDelivered ? "delivered" : "not delivered"}`);
   emitLine(ctx, `  ${pc.bold("deepLink")}   ${created.deepLink}`);
   for (const it of created.items) {
@@ -66,29 +69,14 @@ export async function requestCreateCommand(ctx: Context, flags: CreateCommandFla
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-async function runWizard(
-  ctx: Context,
-  client: Agreely,
-): Promise<CreateConsentRequestInput | null> {
+async function runWizard(): Promise<CreateConsentRequestInput | null> {
   prompts.intro(pc.bold("Issue a consent request"));
 
-  const catalog: CatalogEntry[] = await client.catalog.list();
-  if (catalog.length === 0) {
-    note(ctx, pc.yellow("No declared catalog entries — declare a catalog in the company UI first."));
-    prompts.cancel("Nothing to request.");
-    return null;
-  }
-
-  const picked = await prompts.multiselect({
-    message: "Which cells do you want consent for?",
-    options: catalog.map((e) => ({
-      value: e.id,
-      label: `${e.category} / ${e.purpose}`,
-      ...(e.description ? { hint: e.description } : {}),
-    })),
-    required: true,
+  const documentRef = await prompts.text({
+    message: "Published consent document (version id or code — see Consent documents in the workspace)",
+    validate: (v) => (v && v.trim() !== "" ? undefined : "Required: the request is issued under a published consent document."),
   });
-  if (prompts.isCancel(picked)) return cancelled();
+  if (prompts.isCancel(documentRef)) return cancelled();
 
   const customer = await prompts.text({
     message: "Customer id (your reference for the subject)",
@@ -108,8 +96,9 @@ async function runWizard(
   });
   if (prompts.isCancel(validUntil)) return cancelled();
 
+  const ref = String(documentRef).trim();
   const confirm = await prompts.confirm({
-    message: `Issue to ${pc.bold(String(to))} for ${(picked as string[]).length} cell(s)?`,
+    message: `Issue to ${pc.bold(String(to))} under document ${pc.bold(ref)}?`,
   });
   if (prompts.isCancel(confirm) || confirm === false) return cancelled();
 
@@ -118,8 +107,9 @@ async function runWizard(
   return {
     customerId: String(customer).trim(),
     recipientEmail: String(to).trim(),
-    items: picked as string[],
     validUntil: String(validUntil).trim(),
+    // A uuid-shaped reference is the version id; anything else is a code.
+    ...(UUID_RE.test(ref) ? { consentDocumentId: ref } : { documentCode: ref }),
   };
 }
 

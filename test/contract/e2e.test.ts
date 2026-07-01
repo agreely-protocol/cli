@@ -22,7 +22,7 @@ interface Fixture {
   subject: string;
   absent: string;
   revocable: { category: string; purpose: string; consentRef: string };
-  issue: { catalogId: string; category: string; purpose: string; recipientEmail: string; validUntil: string };
+  issue: { catalogId: string; category: string; purpose: string; documentId: string; documentCode: string; recipientEmail: string; validUntil: string };
 }
 
 const ready = existsSync(fixturePath) && existsSync(binPath);
@@ -131,7 +131,7 @@ suite("e2e: the agreely bin vs the live /v1 API", () => {
       "request", "create",
       "--customer", fixture!.subject,
       "--to", fixture!.issue.recipientEmail,
-      "--item", fixture!.issue.catalogId,
+      "--document", fixture!.issue.documentId,
       "--valid-until", fixture!.issue.validUntil,
       "--idempotency-key", key,
       "--json",
@@ -158,13 +158,13 @@ suite("e2e: the agreely bin vs the live /v1 API", () => {
     expect(page.items.some((x: { requestId: string }) => x.requestId === issued.requestId)).toBe(true);
   });
 
-  it("a {category:purpose} pair item is resolved server-side", async () => {
+  it("a --document-code is resolved to the published version server-side", async () => {
     const r = await runBin(
       [
         "request", "create",
         "--customer", fixture!.subject,
         "--to", fixture!.issue.recipientEmail,
-        "--item", `${fixture!.issue.category}:${fixture!.issue.purpose}`,
+        "--document-code", fixture!.issue.documentCode,
         "--valid-until", fixture!.issue.validUntil,
         "--json",
       ],
@@ -173,6 +173,7 @@ suite("e2e: the agreely bin vs the live /v1 API", () => {
     expect(r.code).toBe(0);
     const issued = JSON.parse(r.stdout.trim());
     expect(issued.requestId).toMatch(REQUEST_ID);
+    expect(issued.document.code).toBe(fixture!.issue.documentCode);
     expect(issued.items[0]).toMatchObject({ category: fixture!.issue.category, purpose: fixture!.issue.purpose });
   });
 
@@ -182,7 +183,7 @@ suite("e2e: the agreely bin vs the live /v1 API", () => {
         "request", "create",
         "--customer", fixture!.subject,
         "--to", fixture!.issue.recipientEmail,
-        "--item", fixture!.issue.catalogId,
+        "--document", fixture!.issue.documentId,
         "--valid-until", fixture!.issue.validUntil,
         "--json",
       ],
