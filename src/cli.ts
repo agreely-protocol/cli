@@ -9,9 +9,12 @@ import { catalogCommand } from "./commands/catalog.js";
 import { requestCreateCommand } from "./commands/request-create.js";
 import { requestsCommand } from "./commands/requests.js";
 import { requestShowCommand } from "./commands/request-show.js";
+import { requestWaitCommand } from "./commands/request-wait.js";
+import { verifyCommand } from "./commands/verify.js";
 import {
   manualConsentClaimLinkCommand,
   manualConsentCreateCommand,
+  manualConsentEraseCommand,
   manualConsentRevokeCommand,
 } from "./commands/manual-consent.js";
 import { whoamiCommand } from "./commands/whoami.js";
@@ -153,6 +156,39 @@ export async function run(
     await requestShowCommand(ctxFor(cmd), requestId);
   });
 
+  withGlobals(
+    request
+      .command("wait")
+      .description("Poll a request until it settles (approved|refused|expired|revoked_before_action); exit 4 on timeout")
+      .argument("<requestId>", "the protocol requestId (0x + 64 hex)")
+      .option("--interval <ms>", "poll interval in ms (default 2000)")
+      .option("--timeout <ms>", "total wait budget in ms (default 120000)"),
+  ).action(async (requestId: string, opts: { interval?: string; timeout?: string }, cmd: Command) => {
+    await requestWaitCommand(ctxFor(cmd), requestId, {
+      ...(opts.interval !== undefined ? { interval: opts.interval } : {}),
+      ...(opts.timeout !== undefined ? { timeout: opts.timeout } : {}),
+    });
+  });
+
+  // The headline: OFFLINE receipt verification with an honest pass/trust matrix.
+  withGlobals(
+    program
+      .command("verify")
+      .description("Verify a consent receipt offline; prints the honesty matrix (exit 6 if it fails)")
+      .argument("<receipt.json>", "path to the receipt VC JSON file")
+      .option("--ipfs", "also fetch + compare the IPFS disclosure copy (opt-in network)")
+      .option("--onchain", "also check the on-chain document anchor (needs --rpc-url / AGREELY_RPC_URL)")
+      .option("--rpc-url <url>", "JSON-RPC URL for the --onchain check"),
+  ).action(
+    async (path: string, opts: { ipfs?: boolean; onchain?: boolean; rpcUrl?: string }, cmd: Command) => {
+      await verifyCommand(ctxFor(cmd), path, {
+        ...(opts.ipfs !== undefined ? { ipfs: opts.ipfs } : {}),
+        ...(opts.onchain !== undefined ? { onchain: opts.onchain } : {}),
+        ...(opts.rpcUrl !== undefined ? { rpcUrl: opts.rpcUrl } : {}),
+      });
+    },
+  );
+
   // The manual / offline (company-attested) consent surface (scope: 'attest').
   const manualConsent = program
     .command("manual-consent")
@@ -220,6 +256,18 @@ export async function run(
       .option("--reason <text>", "an optional operator reason recorded with the revocation"),
   ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
     await manualConsentRevokeCommand(ctxFor(cmd), consentRef, {
+      ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+    });
+  });
+
+  withGlobals(
+    manualConsent
+      .command("erase")
+      .description("Erase a manual consent by its 0x-hex consentRef (Law 25 art. 28.1)")
+      .argument("<consentRef>", "the protocol consentRef (0x + hex)")
+      .option("--reason <text>", "an optional operator reason recorded with the erasure"),
+  ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
+    await manualConsentEraseCommand(ctxFor(cmd), consentRef, {
       ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
     });
   });

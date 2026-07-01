@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgreelyAuthError,
   AgreelyRateLimitError,
+  AgreelyTimeoutError,
   AgreelyUnavailableError,
   AgreelyValidationError,
 } from "@agreely/sdk";
@@ -25,20 +26,24 @@ const h = vi.hoisted(() => ({
   create: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
+  wait: vi.fn(),
   record: vi.fn(),
   claimLink: vi.fn(),
   revoke: vi.fn(),
   erase: vi.fn(),
+  verify: vi.fn(),
   ctor: vi.fn(),
 }));
 
 vi.mock("@agreely/sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof AgreelySdk>();
   class FakeAgreely {
-    consentRequests = { create: h.create, list: h.list, get: h.get };
+    consentRequests = { create: h.create, list: h.list, get: h.get, waitForSettlement: h.wait };
     manualConsents = { record: h.record, createClaimLink: h.claimLink, revoke: h.revoke, erase: h.erase };
     catalog = { list: h.catalogList };
     checkDetailed = h.checkDetailed;
+    static verifyReceipt = h.verify;
+    static hashPdf = actual.Agreely.hashPdf;
     constructor(opts: unknown) {
       h.ctor(opts);
     }
@@ -434,5 +439,139 @@ describe("manual-consent claim-link / revoke", () => {
     const code = await run(argv("manual-consent", "revoke", "not-a-ref", "--json"), io.io);
     expect(code).toBe(EXIT.USAGE);
     expect(h.revoke).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("manual-consent erase (parity with the SDK erase)", () => {
+  it("erase is keyed on the consentRef and forwards the reason (JSON)", async () => {
+    const ref = "0x" + "b".repeat(64);
+    h.erase.mockResolvedValue({ consentRef: ref, erased: true, alreadyErased: false });
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv("manual-consent", "erase", ref, "--reason", "art-28.1 request", "--json"),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    const [consentRef, opts] = h.erase.mock.calls[0] as [string, { reason?: string }];
+    expect(consentRef).toBe(ref);
+    expect(opts).toEqual({ reason: "art-28.1 request" });
+    expect(JSON.parse(io.out().trim())).toEqual({ consentRef: ref, erased: true, alreadyErased: false });
+  });
+
+  it("erase rejects a non-0x consentRef (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("manual-consent", "erase", "nope", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.erase).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("request wait", () => {
+  const settled = {
+    requestId: "0x" + "c".repeat(64),
+    status: "approved",
+    validUntil: "t",
+    expiresAt: "t",
+    createdAt: "t",
+    settledAt: "t",
+    items: [],
+  };
+
+  it("polls to a terminal state and prints the record (JSON)", async () => {
+    h.wait.mockResolvedValue(settled);
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv("request", "wait", settled.requestId, "--interval", "10", "--timeout", "50", "--json"),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    const [requestId, opts] = h.wait.mock.calls[0] as [string, { intervalMs?: number; timeoutMs?: number }];
+    expect(requestId).toBe(settled.requestId);
+    expect(opts).toEqual({ intervalMs: 10, timeoutMs: 50 });
+    expect(JSON.parse(io.out().trim())).toEqual(settled);
+  });
+
+  it("maps a wait timeout to exit 4", async () => {
+    h.wait.mockRejectedValue(new AgreelyTimeoutError("timed out", { lastStatus: "pending" }));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("request", "wait", settled.requestId, "--json"), io.io);
+    expect(code).toBe(EXIT.UNAVAILABLE);
+  });
+
+  it("rejects a bad requestId (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("request", "wait", "0xshort", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.wait).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("verify (the headline)", () => {
+  const matrix = (overall: string) => ({
+    receiptType: "company_attested",
+    companySignature: overall === "failed" ? "fail" : "pass",
+    citizenAssertion: "unsupported",
+    disclosureCopy: "skipped",
+    documentAnchor: "skipped",
+    overall,
+    notes: ["note one", "note two"],
+  });
+
+  function writeReceipt(): string {
+    const dir = mkdtempSync(join(tmpdir(), "agreely-verify-"));
+    const path = join(dir, "receipt.json");
+    writeFileSync(path, JSON.stringify({ type: ["VerifiableCredential", "ConsentReceipt"] }));
+    return path;
+  }
+
+  it("verified -> exit 0 and emits the matrix JSON", async () => {
+    h.verify.mockResolvedValue(matrix("verified"));
+    const io = makeIo({ env: ENV });
+    const path = writeReceipt();
+    const code = await run(argv("verify", path, "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(JSON.parse(io.out().trim())).toEqual(matrix("verified"));
+    // No auth needed for offline verify.
+    expect(h.verify).toHaveBeenCalledTimes(1);
+  });
+
+  it("partial (citizen offline) -> exit 0", async () => {
+    h.verify.mockResolvedValue(matrix("partial"));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", writeReceipt(), "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+  });
+
+  it("failed -> exit 6", async () => {
+    h.verify.mockResolvedValue(matrix("failed"));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", writeReceipt(), "--json"), io.io);
+    expect(code).toBe(EXIT.VERIFY_FAILED);
+  });
+
+  it("passes --ipfs / --onchain through as verifier options", async () => {
+    h.verify.mockResolvedValue(matrix("verified"));
+    const io = makeIo({ env: { ...ENV, AGREELY_RPC_URL: "https://rpc.test" } });
+    await run(argv("verify", writeReceipt(), "--ipfs", "--onchain", "--json"), io.io);
+    const [, opts] = h.verify.mock.calls[0] as [unknown, { verifyDisclosure?: boolean; rpcUrl?: string }];
+    expect(opts.verifyDisclosure).toBe(true);
+    expect(opts.rpcUrl).toBe("https://rpc.test");
+  });
+
+  it("--onchain without an rpc url is a usage error (exit 2)", async () => {
+    h.verify.mockResolvedValue(matrix("verified"));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", writeReceipt(), "--onchain", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.verify).not.toHaveBeenCalled();
+  });
+
+  it("a missing receipt file is a usage error (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", "/no/such/receipt.json", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
   });
 });

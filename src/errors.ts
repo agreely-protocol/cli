@@ -6,6 +6,7 @@ import {
   AgreelyConfigError,
   AgreelyNotFoundError,
   AgreelyRateLimitError,
+  AgreelyTimeoutError,
   AgreelyUnavailableError,
   AgreelyValidationError,
 } from "@agreely/sdk";
@@ -23,6 +24,8 @@ export const EXIT = {
   UNAVAILABLE: 4,
   /** The per-company rate window was exceeded. */
   RATE_LIMITED: 5,
+  /** A receipt was checked and did NOT verify (`agreely verify`). Not an error — a verdict. */
+  VERIFY_FAILED: 6,
   /** A clean check DENY — an expected negative, NOT an error. */
   DENY: 10,
 } as const;
@@ -44,6 +47,7 @@ export function exitCodeForError(err: unknown): number {
   if (err instanceof UsageError) return EXIT.USAGE;
   if (err instanceof AgreelyAuthError) return EXIT.AUTH;
   if (err instanceof AgreelyRateLimitError) return EXIT.RATE_LIMITED;
+  if (err instanceof AgreelyTimeoutError) return EXIT.UNAVAILABLE;
   if (err instanceof AgreelyUnavailableError) return EXIT.UNAVAILABLE;
   if (err instanceof AgreelyValidationError) return EXIT.USAGE;
   if (err instanceof AgreelyConfigError) return EXIT.USAGE;
@@ -59,6 +63,7 @@ export function errorCodeFor(err: unknown): string {
     err instanceof AgreelyValidationError ||
     err instanceof AgreelyNotFoundError ||
     err instanceof AgreelyRateLimitError ||
+    err instanceof AgreelyTimeoutError ||
     err instanceof AgreelyUnavailableError ||
     err instanceof AgreelyConfigError
   ) {
