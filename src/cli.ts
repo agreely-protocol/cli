@@ -170,21 +170,33 @@ export async function run(
     });
   });
 
-  // The headline: OFFLINE receipt verification with an honest pass/trust matrix.
+  // The headline: offline-first receipt verification with an honest pass/trust
+  // matrix (exit 6 = a real tamper; exit 4 = a DID could not be resolved).
   withGlobals(
     program
       .command("verify")
-      .description("Verify a consent receipt offline; prints the honesty matrix (exit 6 if it fails)")
+      .description("Verify a consent receipt offline-first; prints the honesty matrix (exit 6 tamper, 4 unresolvable)")
       .argument("<receipt.json>", "path to the receipt VC JSON file")
       .option("--ipfs", "also fetch + compare the IPFS disclosure copy (opt-in network)")
       .option("--onchain", "also check the on-chain document anchor (needs --rpc-url / AGREELY_RPC_URL)")
-      .option("--rpc-url <url>", "JSON-RPC URL for the --onchain check"),
+      .option("--rpc-url <url>", "JSON-RPC URL for the --onchain check")
+      .option(
+        "--did-doc <file>",
+        "resolve DIDs from a local DID document file (repeatable) for an air-gapped verify",
+        (val: string, prev: string[]) => [...prev, val],
+        [] as string[],
+      ),
   ).action(
-    async (path: string, opts: { ipfs?: boolean; onchain?: boolean; rpcUrl?: string }, cmd: Command) => {
+    async (
+      path: string,
+      opts: { ipfs?: boolean; onchain?: boolean; rpcUrl?: string; didDoc?: string[] },
+      cmd: Command,
+    ) => {
       await verifyCommand(ctxFor(cmd), path, {
         ...(opts.ipfs !== undefined ? { ipfs: opts.ipfs } : {}),
         ...(opts.onchain !== undefined ? { onchain: opts.onchain } : {}),
         ...(opts.rpcUrl !== undefined ? { rpcUrl: opts.rpcUrl } : {}),
+        ...(opts.didDoc !== undefined && opts.didDoc.length > 0 ? { didDoc: opts.didDoc } : {}),
       });
     },
   );

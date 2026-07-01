@@ -552,6 +552,42 @@ describe("verify (the headline)", () => {
     expect(code).toBe(EXIT.VERIFY_FAILED);
   });
 
+  it("unavailable (unresolvable DID) -> exit 4, NOT 6 (distinct from a tamper)", async () => {
+    h.verify.mockResolvedValue({
+      ...matrix("unavailable"),
+      companySignature: "unavailable",
+    });
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", writeReceipt(), "--json"), io.io);
+    expect(code).toBe(EXIT.UNAVAILABLE);
+    expect(code).not.toBe(EXIT.VERIFY_FAILED);
+  });
+
+  it("--did-doc supplies a local resolver for an air-gapped verify", async () => {
+    h.verify.mockResolvedValue(matrix("verified"));
+    const dir = mkdtempSync(join(tmpdir(), "agreely-diddoc-"));
+    const docPath = join(dir, "did.json");
+    writeFileSync(docPath, JSON.stringify({ id: "did:web:api.agreely.ca:c:acme", verificationMethod: [] }));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", writeReceipt(), "--did-doc", docPath, "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    const [, opts] = h.verify.mock.calls[0] as [unknown, { resolver?: (did: string) => unknown }];
+    expect(typeof opts.resolver).toBe("function");
+    // The local resolver returns the supplied doc by id, and null for anything else.
+    expect(opts.resolver!("did:web:api.agreely.ca:c:acme")).toMatchObject({ id: "did:web:api.agreely.ca:c:acme" });
+    expect(opts.resolver!("did:web:unknown")).toBeNull();
+  });
+
+  it("--did-doc with a file that has no id is a usage error (exit 2)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agreely-diddoc-"));
+    const docPath = join(dir, "bad.json");
+    writeFileSync(docPath, JSON.stringify({ verificationMethod: [] }));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", writeReceipt(), "--did-doc", docPath, "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.verify).not.toHaveBeenCalled();
+  });
+
   it("passes --ipfs / --onchain through as verifier options", async () => {
     h.verify.mockResolvedValue(matrix("verified"));
     const io = makeIo({ env: { ...ENV, AGREELY_RPC_URL: "https://rpc.test" } });
