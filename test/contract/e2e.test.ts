@@ -74,11 +74,14 @@ suite("e2e: the agreely bin vs the live /v1 API", () => {
     issueEnv = { AGREELY_API_KEY: fixture!.keys.issue, AGREELY_BASE_URL: fixture!.baseUrl };
   });
 
-  it("whoami --json verifies the key (exit 0, masked, no secret leak)", async () => {
+  it("whoami --json verifies the key server-side and reports its real scopes (exit 0, no secret leak)", async () => {
     const r = await runBin(["whoami", "--json"], checkEnv);
     expect(r.code).toBe(0);
     const body = JSON.parse(r.stdout.trim());
     expect(body.authenticated).toBe(true);
+    // Server-verified scopes from /v1/whoami (a check key carries 'check').
+    expect(Array.isArray(body.scopes)).toBe(true);
+    expect(body.scopes).toContain("check");
     expect(body.apiKeyMasked).not.toContain(fixture!.keys.check.slice(10));
     expect(r.stdout).not.toContain(fixture!.keys.check);
   });
@@ -171,6 +174,41 @@ suite("e2e: the agreely bin vs the live /v1 API", () => {
     const issued = JSON.parse(r.stdout.trim());
     expect(issued.requestId).toMatch(REQUEST_ID);
     expect(issued.items[0]).toMatchObject({ category: fixture!.issue.category, purpose: fixture!.issue.purpose });
+  });
+
+  it("request cancel: pending -> cancelled (exit 0), then idempotent on the terminal state", async () => {
+    const created = await runBin(
+      [
+        "request", "create",
+        "--customer", fixture!.subject,
+        "--to", fixture!.issue.recipientEmail,
+        "--item", fixture!.issue.catalogId,
+        "--valid-until", fixture!.issue.validUntil,
+        "--json",
+      ],
+      issueEnv,
+    );
+    expect(created.code).toBe(0);
+    const requestId = JSON.parse(created.stdout.trim()).requestId;
+
+    const cancelled = await runBin(["request", "cancel", requestId, "--json"], issueEnv);
+    expect(cancelled.code).toBe(0);
+    expect(JSON.parse(cancelled.stdout.trim())).toEqual({
+      requestId,
+      status: "revoked_before_action",
+      cancelled: true,
+    });
+
+    // Idempotent: a second cancel is not an error and still exits 0.
+    const again = await runBin(["request", "cancel", requestId, "--json"], issueEnv);
+    expect(again.code).toBe(0);
+    expect(JSON.parse(again.stdout.trim()).cancelled).toBe(false);
+  });
+
+  it("request cancel with a check-only key is a scope error (exit 3)", async () => {
+    const r = await runBin(["request", "cancel", "0x" + "a".repeat(64), "--json"], checkEnv);
+    expect(r.code).toBe(3);
+    expect(JSON.parse(r.stderr.trim())).toMatchObject({ error: { code: "forbidden" } });
   });
 
   it("revoke-then-check: ALLOW becomes DENY (exit 10) on the next call", async () => {

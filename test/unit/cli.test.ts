@@ -23,9 +23,11 @@ import { argv, makeIo, makeStore } from "./harness.js";
 const h = vi.hoisted(() => ({
   checkDetailed: vi.fn(),
   catalogList: vi.fn(),
+  identity: vi.fn(),
   create: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
+  cancel: vi.fn(),
   wait: vi.fn(),
   record: vi.fn(),
   claimLink: vi.fn(),
@@ -38,9 +40,10 @@ const h = vi.hoisted(() => ({
 vi.mock("@agreely/sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof AgreelySdk>();
   class FakeAgreely {
-    consentRequests = { create: h.create, list: h.list, get: h.get, waitForSettlement: h.wait };
+    consentRequests = { create: h.create, list: h.list, get: h.get, cancel: h.cancel, waitForSettlement: h.wait };
     manualConsents = { record: h.record, createClaimLink: h.claimLink, revoke: h.revoke, erase: h.erase };
     catalog = { list: h.catalogList };
+    identity = h.identity;
     checkDetailed = h.checkDetailed;
     static verifyReceipt = h.verify;
     static hashPdf = actual.Agreely.hashPdf;
@@ -464,6 +467,64 @@ describe("manual-consent erase (parity with the SDK erase)", () => {
     const code = await run(argv("manual-consent", "erase", "nope", "--json"), io.io);
     expect(code).toBe(EXIT.USAGE);
     expect(h.erase).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("whoami (server-verified via /v1/whoami)", () => {
+  it("calls identity() and reports the REAL server scopes (JSON)", async () => {
+    h.identity.mockResolvedValue({ scopes: ["check", "issue"] });
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("whoami", "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(h.identity).toHaveBeenCalledTimes(1);
+    // It no longer derives identity by listing the catalog.
+    expect(h.catalogList).not.toHaveBeenCalled();
+    const out = JSON.parse(io.out().trim());
+    expect(out).toMatchObject({ authenticated: true, scopes: ["check", "issue"] });
+    // No secret leaks: the raw key never appears, only a masked form.
+    expect(io.out()).not.toContain(ENV.AGREELY_API_KEY);
+  });
+
+  it("a bad key surfaces as exit 3 (auth)", async () => {
+    h.identity.mockRejectedValue(new AgreelyAuthError("bad", { code: "unauthorized", status: 401 }));
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("whoami", "--json"), io.io)).toBe(EXIT.AUTH);
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("request cancel", () => {
+  const rid = "0x" + "a".repeat(64);
+
+  it("cancels a pending request and prints the outcome (exit 0, JSON)", async () => {
+    h.cancel.mockResolvedValue({ requestId: rid, status: "revoked_before_action", cancelled: true });
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("request", "cancel", rid, "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(h.cancel).toHaveBeenCalledWith(rid);
+    expect(JSON.parse(io.out().trim())).toEqual({ requestId: rid, status: "revoked_before_action", cancelled: true });
+  });
+
+  it("is idempotent: an already-terminal request still exits 0 (cancelled:false)", async () => {
+    h.cancel.mockResolvedValue({ requestId: rid, status: "approved", cancelled: false });
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("request", "cancel", rid, "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(JSON.parse(io.out().trim()).cancelled).toBe(false);
+  });
+
+  it("a check-only key (403 forbidden) surfaces as exit 3 (auth)", async () => {
+    h.cancel.mockRejectedValue(new AgreelyAuthError("no scope", { code: "forbidden", status: 403 }));
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("request", "cancel", rid, "--json"), io.io)).toBe(EXIT.AUTH);
+  });
+
+  it("rejects a bad requestId (exit 2) and never calls the SDK", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("request", "cancel", "0xshort", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.cancel).not.toHaveBeenCalled();
   });
 });
 
