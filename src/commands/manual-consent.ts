@@ -17,6 +17,7 @@ import { readFile } from "node:fs/promises";
 import type {
   ClaimLink,
   IssueItem,
+  ManualConsentErasure,
   ManualConsentResult,
   ManualConsentRevocation,
   RecordManualConsentInput,
@@ -167,4 +168,31 @@ export async function manualConsentRevokeCommand(
 
   const tag = result.alreadyRevoked ? pc.dim("(already revoked)") : "";
   emitLine(ctx, `${pc.green("✓")} Revoked ${pc.bold(result.consentRef)} ${tag}`);
+}
+
+export interface ManualConsentEraseFlags {
+  reason?: string;
+}
+
+export async function manualConsentEraseCommand(
+  ctx: Context,
+  consentRef: string,
+  flags: ManualConsentEraseFlags,
+): Promise<void> {
+  if (!CONSENT_REF_RE.test(consentRef)) {
+    throw new UsageError(`"${consentRef}" is not a valid consentRef (expected 0x + hex).`);
+  }
+
+  const { client } = await buildClient(ctx);
+  const result: ManualConsentErasure = await client.manualConsents.erase(consentRef, {
+    ...(flags.reason?.trim() ? { reason: flags.reason.trim() } : {}),
+  });
+
+  if (ctx.agent) {
+    emitJson(ctx, result);
+    return;
+  }
+
+  const tag = result.alreadyErased ? pc.dim("(already erased)") : "";
+  emitLine(ctx, `${pc.green("✓")} Erased ${pc.bold(result.consentRef)} ${tag}`);
 }
