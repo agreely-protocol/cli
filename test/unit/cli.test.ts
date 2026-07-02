@@ -660,6 +660,7 @@ describe("verify (the headline)", () => {
     citizenAssertion: "unsupported",
     disclosureCopy: "skipped",
     documentAnchor: "skipped",
+    cellLabelBinding: overall === "failed" ? "fail" : "pass",
     overall,
     notes: ["note one", "note two"],
   });
@@ -680,6 +681,14 @@ describe("verify (the headline)", () => {
     expect(JSON.parse(io.out().trim())).toEqual(matrix("verified"));
     // No auth needed for offline verify.
     expect(h.verify).toHaveBeenCalledTimes(1);
+  });
+
+  it("human matrix prints the cellLabelBinding row", async () => {
+    h.verify.mockResolvedValue(matrix("verified"));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("verify", writeReceipt()), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(io.out()).toContain("cellLabelBinding");
   });
 
   it("partial (citizen offline) -> exit 0", async () => {

@@ -105,6 +105,7 @@ function printMatrix(ctx: Context, r: ReceiptVerification): void {
   emitLine(ctx, `  citizenAssertion  ${statusLabel(r.citizenAssertion)}`);
   emitLine(ctx, `  disclosureCopy    ${statusLabel(r.disclosureCopy)}`);
   emitLine(ctx, `  documentAnchor    ${statusLabel(r.documentAnchor)}`);
+  emitLine(ctx, `  cellLabelBinding  ${statusLabel(r.cellLabelBinding)}`);
   emitLine(ctx, "");
   if (r.overall === "unavailable") {
     emitLine(
