@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgreelyAuthError,
+  AgreelyNotFoundError,
   AgreelyRateLimitError,
   AgreelyTimeoutError,
   AgreelyUnavailableError,
@@ -33,6 +34,7 @@ const h = vi.hoisted(() => ({
   claimLink: vi.fn(),
   revoke: vi.fn(),
   erase: vi.fn(),
+  relationshipEnd: vi.fn(),
   verify: vi.fn(),
   ctor: vi.fn(),
 }));
@@ -42,6 +44,7 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
   class FakeAgreely {
     consentRequests = { create: h.create, list: h.list, get: h.get, cancel: h.cancel, waitForSettlement: h.wait };
     manualConsents = { record: h.record, createClaimLink: h.claimLink, revoke: h.revoke, erase: h.erase };
+    relationships = { end: h.relationshipEnd };
     catalog = { list: h.catalogList };
     identity = h.identity;
     checkDetailed = h.checkDetailed;
@@ -564,6 +567,47 @@ describe("request cancel", () => {
     const code = await run(argv("request", "cancel", "0xshort", "--json"), io.io);
     expect(code).toBe(EXIT.USAGE);
     expect(h.cancel).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("relationship end", () => {
+  const ref = "cust-1";
+  const ended = { customerRef: ref, status: "ended", endedAt: "2026-07-02T10:00:00Z", endedBy: "company" };
+
+  it("ends the relationship and prints the outcome (exit 0, JSON)", async () => {
+    h.relationshipEnd.mockResolvedValue(ended);
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("relationship", "end", ref, "--reason", "purposes accomplished", "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(h.relationshipEnd).toHaveBeenCalledWith({ customerRef: ref, reason: "purposes accomplished" });
+    expect(JSON.parse(io.out().trim())).toEqual(ended);
+  });
+
+  it("requires --reason and NEVER calls the SDK when it is missing (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("relationship", "end", ref, "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.relationshipEnd).not.toHaveBeenCalled();
+  });
+
+  it("rejects a blank --reason and never calls the SDK (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("relationship", "end", ref, "--reason", "   ", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.relationshipEnd).not.toHaveBeenCalled();
+  });
+
+  it("a scope-less key (403 forbidden) surfaces as exit 3 (auth)", async () => {
+    h.relationshipEnd.mockRejectedValue(new AgreelyAuthError("no scope", { code: "forbidden", status: 403 }));
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("relationship", "end", ref, "--reason", "done", "--json"), io.io)).toBe(EXIT.AUTH);
+  });
+
+  it("an unknown/foreign ref (404) surfaces as exit 2 (usage)", async () => {
+    h.relationshipEnd.mockRejectedValue(new AgreelyNotFoundError("no such customer", { code: "not_found", status: 404 }));
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("relationship", "end", "ghost", "--reason", "done", "--json"), io.io)).toBe(EXIT.USAGE);
   });
 });
 

@@ -18,6 +18,7 @@ import {
   manualConsentEraseCommand,
   manualConsentRevokeCommand,
 } from "./commands/manual-consent.js";
+import { relationshipEndCommand } from "./commands/relationship-end.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { configSetCommand, loginCommand } from "./commands/login.js";
 import type { CredentialStore } from "./config.js";
@@ -288,6 +289,24 @@ export async function run(
       .option("--reason <text>", "an optional operator reason recorded with the erasure"),
   ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
     await manualConsentEraseCommand(ctxFor(cmd), consentRef, {
+      ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+    });
+  });
+
+  // End a customer relationship (Law 25 art. 23) from the company's own tooling
+  // (scope: 'relationship'). Keyed on the company's OWN customerRef, never a DID.
+  const relationship = program
+    .command("relationship")
+    .description("Manage the customer-relationship lifecycle (art. 23)");
+
+  withGlobals(
+    relationship
+      .command("end")
+      .description("End a customer relationship — attest the purposes are accomplished (art. 23)")
+      .argument("<customerRef>", "the company's own reference for the customer (never a DID)")
+      .option("--reason <text>", "the required art. 23 justification for ending the relationship"),
+  ).action(async (customerRef: string, opts: { reason?: string }, cmd: Command) => {
+    await relationshipEndCommand(ctxFor(cmd), customerRef, {
       ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
     });
   });
