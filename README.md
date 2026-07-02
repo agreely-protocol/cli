@@ -78,6 +78,7 @@ agreely request cancel <requestId> [--json]    # cancel a pending request (idemp
 agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> --item <catalogId|category:purpose> ... --pdf <path> [--upload] [--json]
 agreely manual-consent claim-link --customer <id> [--reference <ref>] [--json]
 agreely manual-consent revoke <consentRef> [--reason <text>] [--json]
+agreely relationship end <customerRef> --reason <text> [--json]   # end a customer relationship (art. 23; idempotent)
 agreely whoami [--json]                         # server-verified: reports the key's real scopes
 agreely login                                  # interactive: store a key in the OS keychain
 agreely config set --api-key <k> [--base-url <url>]   # non-interactive store (for scripts)
