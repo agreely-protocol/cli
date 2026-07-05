@@ -23,6 +23,7 @@ import { argv, makeIo, makeStore } from "./harness.js";
 // --- the programmable SDK fake ------------------------------------------------
 const h = vi.hoisted(() => ({
   checkDetailed: vi.fn(),
+  checkBatch: vi.fn(),
   catalogList: vi.fn(),
   identity: vi.fn(),
   create: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
     catalog = { list: h.catalogList };
     identity = h.identity;
     checkDetailed = h.checkDetailed;
+    checkBatch = h.checkBatch;
     static verifyReceipt = h.verify;
     static hashPdf = actual.Agreely.hashPdf;
     constructor(opts: unknown) {
@@ -762,5 +764,84 @@ describe("verify (the headline)", () => {
     const io = makeIo({ env: ENV });
     const code = await run(argv("verify", "/no/such/receipt.json", "--json"), io.io);
     expect(code).toBe(EXIT.USAGE);
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("check --batch: batch mode via SDK checkBatch", () => {
+  function writeBatchFile(items: unknown[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "agreely-batch-"));
+    const path = join(dir, "batch.json");
+    writeFileSync(path, JSON.stringify(items));
+    return path;
+  }
+
+  const allow = {
+    customerRef: "c1", category: "Email", purpose: "Marketing",
+    decision: "allow", status: "active", consentRef: "0xabc", checkedAt: "t",
+  };
+  const deny = {
+    customerRef: "c2", category: "Phone", purpose: "Billing",
+    decision: "deny", status: "none", checkedAt: "t",
+  };
+
+  it("all allow -> exit 0, emits JSON array in agent mode", async () => {
+    h.checkBatch.mockResolvedValue([allow]);
+    const batchFile = writeBatchFile([{ customerRef: "c1", category: "Email", purpose: "Marketing" }]);
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("check", "--batch", batchFile, "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    const out = JSON.parse(io.out().trim());
+    expect(Array.isArray(out)).toBe(true);
+    expect(out[0]).toMatchObject({ decision: "allow", customerRef: "c1" });
+  });
+
+  it("any deny -> exit 10 (DENY)", async () => {
+    h.checkBatch.mockResolvedValue([allow, deny]);
+    const batchFile = writeBatchFile([
+      { customerRef: "c1", category: "Email", purpose: "Marketing" },
+      { customerRef: "c2", category: "Phone", purpose: "Billing" },
+    ]);
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("check", "--batch", batchFile, "--json"), io.io);
+    expect(code).toBe(EXIT.DENY);
+    const out = JSON.parse(io.out().trim());
+    expect(out).toHaveLength(2);
+  });
+
+  it("calls checkBatch with the items from the file, not checkDetailed", async () => {
+    h.checkBatch.mockResolvedValue([allow]);
+    const batchFile = writeBatchFile([{ customerRef: "c1", category: "Email", purpose: "Marketing" }]);
+    const io = makeIo({ env: ENV });
+    await run(argv("check", "--batch", batchFile, "--json"), io.io);
+    expect(h.checkBatch).toHaveBeenCalledTimes(1);
+    expect(h.checkDetailed).not.toHaveBeenCalled();
+    expect(h.checkBatch).toHaveBeenCalledWith([
+      { customerRef: "c1", category: "Email", purpose: "Marketing" },
+    ]);
+  });
+
+  it("a non-existent batch file is a usage error (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("check", "--batch", "/no/such/batch.json", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.checkBatch).not.toHaveBeenCalled();
+  });
+
+  it("a batch file that is not a JSON array is a usage error (exit 2)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agreely-batch-"));
+    const path = join(dir, "bad.json");
+    writeFileSync(path, JSON.stringify({ not: "an array" }));
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("check", "--batch", path, "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.checkBatch).not.toHaveBeenCalled();
+  });
+
+  it("missing customerId/category/purpose without --batch is a usage error (exit 2)", async () => {
+    const io = makeIo({ env: ENV, isTTY: false });
+    const code = await run(argv("check", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.checkDetailed).not.toHaveBeenCalled();
   });
 });

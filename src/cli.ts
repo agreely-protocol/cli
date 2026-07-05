@@ -79,13 +79,22 @@ export async function run(
   withGlobals(
     program
       .command("check")
-      .description("Check a consent decision (exit 0 allow, 10 deny, 4 outage)")
-      .argument("<customerId>", "your reference for the subject")
-      .argument("<category>", "the data category (raw; the server normalizes)")
-      .argument("<purpose>", "the processing purpose (raw)"),
-  ).action(async (customerId: string, category: string, purpose: string, _o, cmd: Command) => {
-    await checkCommand(ctxFor(cmd), customerId, category, purpose);
-  });
+      .description("Check a consent decision (exit 0 allow, 10 deny, 4 outage). Use --batch <file.json> for bulk checks.")
+      .argument("[customerId]", "your reference for the subject (omit with --batch)")
+      .argument("[category]", "the data category (raw; the server normalizes; omit with --batch)")
+      .argument("[purpose]", "the processing purpose (raw; omit with --batch)")
+      .option("--batch <file>", "path to a JSON file: array of {customerRef, category, purpose}"),
+  ).action(
+    async (
+      customerId: string | undefined,
+      category: string | undefined,
+      purpose: string | undefined,
+      opts: { batch?: string },
+      cmd: Command,
+    ) => {
+      await checkCommand(ctxFor(cmd), customerId, category, purpose, opts.batch);
+    },
+  );
 
   withGlobals(
     program.command("catalog").description("List the company's declared active catalog"),
