@@ -2,14 +2,18 @@
   "name": "@agreely/cli",
   "version": "0.1.0",
   "description": "The Agreely CLI — a one-call consent gate for humans (interactive) and agents (scriptable JSON). A thin shell over @agreely/sdk.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "agreely": "dist/bin.js"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"

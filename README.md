@@ -92,6 +92,11 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 # {"decision":"deny","status":"revoked","consentRef":"0x…"}      exit 10
 ```
 
+**Category labels are language-sensitive.** The `category` and `purpose` must match
+the catalog cell's canonical label (French by default). Matching is case- and
+whitespace-insensitive but accent- and language-sensitive: the English display label
+will NOT match. Pass the label exactly as declared in the catalog.
+
 ### `request create`
 
 Scriptable (agent) — every required flag present, no prompts:

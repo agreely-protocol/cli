@@ -9,7 +9,9 @@
 //   call checkBatch() once, and print a decisions table (human) or JSON array (agent).
 //   Exit 0 when ALL allow; exit 10 when ANY deny.
 //
-// category/purpose are sent RAW (the server normalizes).
+// category/purpose are sent RAW (the server normalizes). They must match the catalog
+// cell's canonical label (French by default): matching is case- and whitespace-insensitive
+// but accent- and language-sensitive, so the English display label will NOT match.
 
 import { readFile } from "node:fs/promises";
 import type { BatchCheckItem, BatchDecision, CheckResult } from "@agreely/sdk";

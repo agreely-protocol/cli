@@ -83,7 +83,14 @@ export async function run(
       .argument("[customerId]", "your reference for the subject (omit with --batch)")
       .argument("[category]", "the data category (raw; the server normalizes; omit with --batch)")
       .argument("[purpose]", "the processing purpose (raw; omit with --batch)")
-      .option("--batch <file>", "path to a JSON file: array of {customerRef, category, purpose}"),
+      .option("--batch <file>", "path to a JSON file: array of {customerRef, category, purpose}")
+      .addHelpText(
+        "after",
+        "\nCategory labels are language-sensitive. The category and purpose must match the" +
+          "\ncatalog cell's canonical label (French by default). Matching is case- and" +
+          "\nwhitespace-insensitive but accent- and language-sensitive: the English display" +
+          "\nlabel will NOT match. Pass the label exactly as declared in the catalog.",
+      ),
   ).action(
     async (
       customerId: string | undefined,
