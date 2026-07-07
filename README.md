@@ -92,10 +92,11 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 # {"decision":"deny","status":"revoked","consentRef":"0x…"}      exit 10
 ```
 
-**Category labels are language-sensitive.** The `category` and `purpose` must match
-the catalog cell's canonical label (French by default). Matching is case- and
-whitespace-insensitive but accent- and language-sensitive: the English display label
-will NOT match. Pass the label exactly as declared in the catalog.
+**Labels are bilingual and accent-tolerant.** The `category` and `purpose` may be
+given in French OR English, with or without accents, and are matched case- and
+whitespace-insensitively. English resolves only when the company disclosed an English
+label for that cell. An ambiguous or undeclared label fails closed (deny / `none`), so
+pass the label as declared in the catalog when you can.
 
 ### `request create`
 

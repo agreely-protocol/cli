@@ -86,10 +86,10 @@ export async function run(
       .option("--batch <file>", "path to a JSON file: array of {customerRef, category, purpose}")
       .addHelpText(
         "after",
-        "\nCategory labels are language-sensitive. The category and purpose must match the" +
-          "\ncatalog cell's canonical label (French by default). Matching is case- and" +
-          "\nwhitespace-insensitive but accent- and language-sensitive: the English display" +
-          "\nlabel will NOT match. Pass the label exactly as declared in the catalog.",
+        "\nLabels are bilingual and accent-tolerant. The category and purpose may be given in" +
+          "\nFrench OR English, with or without accents, matched case- and whitespace-insensitively." +
+          "\nEnglish resolves only when the company disclosed an English label for that cell; an" +
+          "\nambiguous or undeclared label fails closed. Pass the label as declared in the catalog.",
       ),
   ).action(
     async (
