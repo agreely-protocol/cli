@@ -8,7 +8,7 @@ hardcodes no contract address.
 
 1. **Publish `@agreely/sdk` first.** Its mainnet registry address is already
    deployed, verified, and filled (Base mainnet chainId 8453,
-   `0x1E3121CFB5dfE1ac0b0265790D2bdA709725cF8B` — see that package's
+   `0x1E3121CFB5dfE1ac0b0265790D2bdA709725cF8B` - see that package's
    `PUBLISHING.md`). The CLI's default on-chain behavior comes from the
    installed SDK.
 
