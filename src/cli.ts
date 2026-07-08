@@ -19,6 +19,7 @@ import {
   manualConsentRevokeCommand,
 } from "./commands/manual-consent.js";
 import { relationshipEndCommand } from "./commands/relationship-end.js";
+import { relationshipRevertCommand } from "./commands/relationship-revert.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { configSetCommand, loginCommand } from "./commands/login.js";
 import type { CredentialStore } from "./config.js";
@@ -323,6 +324,18 @@ export async function run(
       .option("--reason <text>", "the required art. 23 justification for ending the relationship"),
   ).action(async (customerRef: string, opts: { reason?: string }, cmd: Command) => {
     await relationshipEndCommand(ctxFor(cmd), customerRef, {
+      ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+    });
+  });
+
+  withGlobals(
+    relationship
+      .command("revert")
+      .description("Undo a mistaken end of relationship — an art. 11 / art. 28 correction")
+      .argument("<customerRef>", "the company's own reference for the customer (never a DID)")
+      .option("--reason <text>", "the required art. 11 / art. 28 justification for undoing the end"),
+  ).action(async (customerRef: string, opts: { reason?: string }, cmd: Command) => {
+    await relationshipRevertCommand(ctxFor(cmd), customerRef, {
       ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
     });
   });

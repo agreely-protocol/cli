@@ -36,6 +36,7 @@ const h = vi.hoisted(() => ({
   revoke: vi.fn(),
   erase: vi.fn(),
   relationshipEnd: vi.fn(),
+  relationshipRevert: vi.fn(),
   verify: vi.fn(),
   ctor: vi.fn(),
 }));
@@ -45,7 +46,7 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
   class FakeAgreely {
     consentRequests = { create: h.create, list: h.list, get: h.get, cancel: h.cancel, waitForSettlement: h.wait };
     manualConsents = { record: h.record, createClaimLink: h.claimLink, revoke: h.revoke, erase: h.erase };
-    relationships = { end: h.relationshipEnd };
+    relationships = { end: h.relationshipEnd, revert: h.relationshipRevert };
     catalog = { list: h.catalogList };
     identity = h.identity;
     checkDetailed = h.checkDetailed;
@@ -610,6 +611,47 @@ describe("relationship end", () => {
     h.relationshipEnd.mockRejectedValue(new AgreelyNotFoundError("no such customer", { code: "not_found", status: 404 }));
     const io = makeIo({ env: ENV });
     expect(await run(argv("relationship", "end", "ghost", "--reason", "done", "--json"), io.io)).toBe(EXIT.USAGE);
+  });
+});
+
+// -----------------------------------------------------------------------------
+describe("relationship revert", () => {
+  const ref = "cust-1";
+  const reverted = { customerRef: ref, status: "active", reverted: true };
+
+  it("reverts the end and prints the outcome (exit 0, JSON)", async () => {
+    h.relationshipRevert.mockResolvedValue(reverted);
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("relationship", "revert", ref, "--reason", "ended by mistake", "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(h.relationshipRevert).toHaveBeenCalledWith({ customerRef: ref, reason: "ended by mistake" });
+    expect(JSON.parse(io.out().trim())).toEqual(reverted);
+  });
+
+  it("requires --reason and NEVER calls the SDK when it is missing (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("relationship", "revert", ref, "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.relationshipRevert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a blank --reason and never calls the SDK (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("relationship", "revert", ref, "--reason", "   ", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.relationshipRevert).not.toHaveBeenCalled();
+  });
+
+  it("a scope-less key (403 forbidden) surfaces as exit 3 (auth)", async () => {
+    h.relationshipRevert.mockRejectedValue(new AgreelyAuthError("no scope", { code: "forbidden", status: 403 }));
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("relationship", "revert", ref, "--reason", "done", "--json"), io.io)).toBe(EXIT.AUTH);
+  });
+
+  it("a non-undo-eligible/foreign ref (404) surfaces as exit 2 (usage)", async () => {
+    h.relationshipRevert.mockRejectedValue(new AgreelyNotFoundError("not undo-eligible", { code: "not_found", status: 404 }));
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("relationship", "revert", "ghost", "--reason", "done", "--json"), io.io)).toBe(EXIT.USAGE);
   });
 });
 
