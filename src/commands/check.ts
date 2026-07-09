@@ -4,6 +4,8 @@
 //   ALLOW -> exit 0, DENY -> exit 10 (a clean negative, NOT an error).
 // An outage throws AgreelyUnavailableError from the SDK -> the top-level mapper
 // resolves it to exit 4 (distinct from deny), honouring the fail-closed default.
+// A lapsed company subscription throws AgreelyBillingInactiveError (HTTP 402) ->
+// exit 7 (distinct from both deny and outage): fail-closed, but actionable.
 //
 // Batch mode (--batch <file>): read a JSON array of {customerRef, category, purpose},
 //   call checkBatch() once, and print a decisions table (human) or JSON array (agent).

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgreelyAuthError,
+  AgreelyBillingInactiveError,
   AgreelyNotFoundError,
   AgreelyRateLimitError,
   AgreelyTimeoutError,
@@ -120,6 +121,14 @@ describe("exit-code mapping (the agent contract)", () => {
     expect(await run(argv("check", "c", "Cat", "Pur", "--json"), io.io)).toBe(EXIT.UNAVAILABLE);
   });
 
+  it("billing inactive (402) -> 7 (distinct from both deny and outage)", async () => {
+    h.checkDetailed.mockRejectedValue(
+      new AgreelyBillingInactiveError("subscription lapsed", { code: "billing_inactive", status: 402 }),
+    );
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("check", "c", "Cat", "Pur", "--json"), io.io)).toBe(EXIT.BILLING_INACTIVE);
+  });
+
   it("rate-limited -> 5", async () => {
     h.checkDetailed.mockRejectedValue(
       new AgreelyRateLimitError("slow", { code: "rate_limited", status: 429, retryAfter: 7 }),
@@ -175,6 +184,16 @@ describe("--json emits PURE JSON to stdout and nothing else", () => {
     await run(argv("check", "c", "Cat", "Pur", "--json"), io.io);
     expect(io.out()).toBe("");
     expect(JSON.parse(io.err().trim())).toMatchObject({ error: { code: "unauthorized" } });
+  });
+
+  it("a 402 billing-inactive envelope carries the billing_inactive code on stderr", async () => {
+    h.checkDetailed.mockRejectedValue(
+      new AgreelyBillingInactiveError("subscription lapsed", { code: "billing_inactive", status: 402 }),
+    );
+    const io = makeIo({ env: ENV });
+    await run(argv("check", "c", "Cat", "Pur", "--json"), io.io);
+    expect(io.out()).toBe("");
+    expect(JSON.parse(io.err().trim())).toMatchObject({ error: { code: "billing_inactive" } });
   });
 
   it("non-TTY (no --json) is still agent mode: JSON out", async () => {

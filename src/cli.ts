@@ -80,7 +80,7 @@ export async function run(
   withGlobals(
     program
       .command("check")
-      .description("Check a consent decision (exit 0 allow, 10 deny, 4 outage). Use --batch <file.json> for bulk checks.")
+      .description("Check a consent decision (exit 0 allow, 10 deny, 4 outage, 7 the company's billing lapsed). Use --batch <file.json> for bulk checks.")
       .argument("[customerId]", "your reference for the subject (omit with --batch)")
       .argument("[category]", "the data category (raw; the server normalizes; omit with --batch)")
       .argument("[purpose]", "the processing purpose (raw; omit with --batch)")

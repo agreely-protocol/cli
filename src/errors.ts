@@ -3,6 +3,7 @@
 
 import {
   AgreelyAuthError,
+  AgreelyBillingInactiveError,
   AgreelyConfigError,
   AgreelyNotFoundError,
   AgreelyRateLimitError,
@@ -26,6 +27,12 @@ export const EXIT = {
   RATE_LIMITED: 5,
   /** A receipt was checked and did NOT verify (`agreely verify`). Not an error — a verdict. */
   VERIFY_FAILED: 6,
+  /**
+   * The company's Agreely subscription is inactive/lapsed (HTTP 402). DISTINCT
+   * from an outage (4): actionable — the company must pay to restore service —
+   * and fail-closed for gating (a lapsed biller never gets an allow).
+   */
+  BILLING_INACTIVE: 7,
   /** A clean check DENY — an expected negative, NOT an error. */
   DENY: 10,
 } as const;
@@ -46,6 +53,7 @@ export class UsageError extends Error {
 export function exitCodeForError(err: unknown): number {
   if (err instanceof UsageError) return EXIT.USAGE;
   if (err instanceof AgreelyAuthError) return EXIT.AUTH;
+  if (err instanceof AgreelyBillingInactiveError) return EXIT.BILLING_INACTIVE;
   if (err instanceof AgreelyRateLimitError) return EXIT.RATE_LIMITED;
   if (err instanceof AgreelyTimeoutError) return EXIT.UNAVAILABLE;
   if (err instanceof AgreelyUnavailableError) return EXIT.UNAVAILABLE;
@@ -62,6 +70,7 @@ export function errorCodeFor(err: unknown): string {
     err instanceof AgreelyAuthError ||
     err instanceof AgreelyValidationError ||
     err instanceof AgreelyNotFoundError ||
+    err instanceof AgreelyBillingInactiveError ||
     err instanceof AgreelyRateLimitError ||
     err instanceof AgreelyTimeoutError ||
     err instanceof AgreelyUnavailableError ||

@@ -69,13 +69,17 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
 | `4` | **unavailable** - an Agreely outage (distinct from a deny) |
 | `5` | rate-limited - the per-company window was exceeded |
+| `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
 | `10` | check **DENY** - a clean, expected negative, **not** an error |
 | `1` | an unexpected/uncategorized failure |
 
 `check` resolves ALLOW→`0` and DENY→`10`. The CLI is **fail-closed**: on an
 outage the SDK throws and the CLI exits `4`, so a caller can tell "outage" from
-"denied". A DENY's JSON still goes to stdout; a real error keeps stdout clean and
-writes a `{"error":{"code","message"}}` envelope to stderr.
+"denied". A lapsed **company** subscription is a `402` that exits `7` (its
+envelope code is `billing_inactive`) - also fail-closed, but distinct from an
+outage and actionable: the company must pay to restore service. A DENY's JSON
+still goes to stdout; a real error keeps stdout clean and writes a
+`{"error":{"code","message"}}` envelope to stderr.
 
 ## Commands
 
