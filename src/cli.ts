@@ -28,7 +28,7 @@ import { EXIT, exitCodeForError } from "./errors.js";
 import { defaultIo, type Io } from "./io.js";
 import { reportError } from "./output.js";
 
-export const VERSION = "0.1.2";
+export const VERSION = "0.2.0";
 
 /** Attach the shared auth/output flags so they work before OR after a subcommand. */
 function withGlobals(cmd: Command): Command {
@@ -116,17 +116,39 @@ export async function run(
     await whoamiCommand(ctxFor(cmd));
   });
 
-  withGlobals(
-    program
-      .command("requests")
-      .description("List consent requests (cursor pagination)")
-      .option("--status <status>", "filter: pending|approved|refused|expired|revoked_before_action")
-      .option("--cursor <id>", "page after this requestId (from a prior nextCursor)"),
-  ).action(async (opts: { status?: string; cursor?: string }, cmd: Command) => {
+  // `requests list` is the documented form; the bare `requests` is a kept alias.
+  type RequestsOpts = { customer?: string; status?: string; limit?: string; cursor?: string };
+  const runRequests = async (opts: RequestsOpts, cmd: Command): Promise<void> => {
     await requestsCommand(ctxFor(cmd), {
+      ...(opts.customer !== undefined ? { customer: opts.customer } : {}),
       ...(opts.status !== undefined ? { status: opts.status } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.cursor !== undefined ? { cursor: opts.cursor } : {}),
     });
+  };
+  const withRequestsListFlags = (cmd: Command): Command =>
+    cmd
+      .option("--customer <ref>", "filter to one subject ref (the company's own customerId)")
+      .option("--status <status>", "filter: pending|approved|refused|expired|revoked_before_action")
+      .option("--limit <n>", "page size (server default 50, max 100)")
+      .option("--cursor <id>", "page after this requestId (from a prior nextCursor)");
+
+  const requests = program
+    .command("requests")
+    .description("List consent requests (metadata only, cursor pagination)")
+    .enablePositionalOptions();
+  // Bare `agreely requests [--customer ...] ...` stays working (alias of `list`).
+  withGlobals(withRequestsListFlags(requests)).action(async (opts: RequestsOpts, cmd: Command) => {
+    await runRequests(opts, cmd);
+  });
+  withGlobals(
+    withRequestsListFlags(
+      requests
+        .command("list")
+        .description("List consent requests, newest first (metadata only)"),
+    ),
+  ).action(async (opts: RequestsOpts, cmd: Command) => {
+    await runRequests(opts, cmd);
   });
 
   const request = program.command("request").description("Issue and inspect consent requests");

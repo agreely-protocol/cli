@@ -151,11 +151,26 @@ suite("e2e: the agreely bin vs the live /v1 API", () => {
     expect(shown.code).toBe(0);
     expect(JSON.parse(shown.stdout.trim()).requestId).toBe(issued.requestId);
 
-    // requests --status pending surfaces it.
-    const list = await runBin(["requests", "--status", "pending", "--json"], issueEnv);
+    // requests list --status pending surfaces it (bare `requests` alias too).
+    const list = await runBin(["requests", "list", "--status", "pending", "--json"], issueEnv);
     expect(list.code).toBe(0);
     const page = JSON.parse(list.stdout.trim());
     expect(page.items.some((x: { requestId: string }) => x.requestId === issued.requestId)).toBe(true);
+
+    // The --customer + --limit filters narrow it, and the record carries the new
+    // customerId + documentCode metadata.
+    const filtered = await runBin(
+      ["requests", "list", "--customer", fixture!.subject, "--status", "pending", "--limit", "100", "--json"],
+      issueEnv,
+    );
+    expect(filtered.code).toBe(0);
+    const filteredPage = JSON.parse(filtered.stdout.trim());
+    const mine = filteredPage.items.find(
+      (x: { requestId: string }) => x.requestId === issued.requestId,
+    );
+    expect(mine).toBeDefined();
+    expect(mine.customerId).toBe(fixture!.subject);
+    expect(mine.documentCode).toBe(fixture!.issue.documentCode);
   });
 
   it("a --document-code is resolved to the published version server-side", async () => {

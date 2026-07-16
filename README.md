@@ -86,7 +86,7 @@ still goes to stdout; a real error keeps stdout clean and writes a
 ```sh
 agreely check <customerId> <category> <purpose> [--json]
 agreely catalog [--json]
-agreely requests [--status pending|approved|refused|expired|revoked_before_action] [--cursor <id>] [--json]
+agreely requests list [--customer <ref>] [--status pending|approved|refused|expired|revoked_before_action] [--limit <n>] [--cursor <id>] [--json]  # metadata only; bare `agreely requests ...` is a kept alias
 agreely request create [--customer <id> --to <email> (--document <versionId> | --document-code <code>) --valid-until <YYYY-MM-DD>] [--idempotency-key <k>] [--json]
 agreely request show <requestId> [--json]      # requestId is 0x + 64 hex
 agreely request cancel <requestId> [--json]    # cancel a pending request (idempotent)

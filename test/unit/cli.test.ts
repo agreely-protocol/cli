@@ -374,6 +374,88 @@ describe("request create maps flags to the SDK input (bound consent document)", 
 });
 
 // -----------------------------------------------------------------------------
+describe("requests list (customerId + status + limit + cursor filters)", () => {
+  const rec = (id: string, over: Record<string, unknown> = {}) => ({
+    requestId: id,
+    status: "pending",
+    validUntil: "2031-01-01",
+    expiresAt: "2031-01-01",
+    createdAt: "2026-01-01",
+    settledAt: null,
+    customerId: "cust_1",
+    documentCode: "conditions-marketing",
+    items: [],
+    document: null,
+    ...over,
+  });
+
+  it("`requests list` forwards all filters to the SDK and emits the page JSON", async () => {
+    const page = { items: [rec("0xa", { customerId: "cust_42" })], nextCursor: "0xa" };
+    h.list.mockResolvedValue(page);
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv("requests", "list", "--customer", "cust_42", "--status", "pending", "--limit", "25", "--cursor", "0xprev", "--json"),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    expect(h.list).toHaveBeenCalledTimes(1);
+    const [input] = h.list.mock.calls[0] as [Record<string, unknown>];
+    expect(input).toEqual({ customerId: "cust_42", status: "pending", limit: 25, cursor: "0xprev" });
+    expect(JSON.parse(io.out().trim())).toEqual(page);
+    expect(io.err()).toBe("");
+  });
+
+  it("the bare `requests` alias still works and forwards filters", async () => {
+    h.list.mockResolvedValue({ items: [rec("0xa")], nextCursor: null });
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("requests", "--customer", "cust_9", "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    const [input] = h.list.mock.calls[0] as [Record<string, unknown>];
+    expect(input).toEqual({ customerId: "cust_9" });
+  });
+
+  it("no filters lists everything (empty input)", async () => {
+    h.list.mockResolvedValue({ items: [], nextCursor: null });
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("requests", "list", "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(h.list).toHaveBeenCalledWith({});
+  });
+
+  it("rejects an invalid --status (exit 2) and never calls the SDK", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("requests", "list", "--status", "bogus", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.list).not.toHaveBeenCalled();
+  });
+
+  it("rejects a --limit over 100 (exit 2) and never calls the SDK", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("requests", "list", "--limit", "500", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.list).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-integer --limit (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("requests", "list", "--limit", "abc", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.list).not.toHaveBeenCalled();
+  });
+
+  it("human mode prints the customerId + documentCode columns and a next-page hint", async () => {
+    h.list.mockResolvedValue({ items: [rec("0xa", { customerId: "cust_77", documentCode: "infolettre" })], nextCursor: "0xa" });
+    const io = makeIo({ env: ENV, isTTY: true });
+    // isTTY true but no --json: human output on stdout, hint on stderr.
+    const code = await run(argv("requests", "list"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(io.out()).toContain("cust_77");
+    expect(io.out()).toContain("infolettre");
+    expect(io.err()).toContain("requests list --cursor 0xa");
+  });
+});
+
+// -----------------------------------------------------------------------------
 describe("manual-consent create: local PDF hashing (data minimization)", () => {
   const recorded = {
     consentId: "mc_1",

@@ -1,8 +1,9 @@
-// agreely requests [--status ...] [--cursor <id>] [--json]
+// agreely requests list [--customer <ref>] [--status <s>] [--limit N] [--cursor <id>] [--json]
+// (the bare `agreely requests ...` is kept as an alias of `requests list`).
 //
 // Cursor pagination. Agent mode returns ONE raw page ({items, nextCursor}) so a
 // caller can drive the cursor itself. Human mode prints the page and hints how to
-// fetch the next one.
+// fetch the next one. Metadata only, tenant-scoped by the API key.
 
 import type { ConsentRequestPage, ConsentRequestStatus, ListConsentRequestsInput } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
@@ -19,7 +20,9 @@ const STATUSES: ConsentRequestStatus[] = [
 ];
 
 export interface RequestsFlags {
+  customer?: string;
   status?: string;
+  limit?: string;
   cursor?: string;
 }
 
@@ -27,11 +30,19 @@ export async function requestsCommand(ctx: Context, flags: RequestsFlags): Promi
   const { client } = await buildClient(ctx);
 
   const input: ListConsentRequestsInput = {};
+  if (flags.customer !== undefined) input.customerId = flags.customer;
   if (flags.status !== undefined) {
     if (!STATUSES.includes(flags.status as ConsentRequestStatus)) {
       throw new UsageError(`Invalid --status "${flags.status}". One of: ${STATUSES.join(", ")}.`);
     }
     input.status = flags.status as ConsentRequestStatus;
+  }
+  if (flags.limit !== undefined) {
+    const limit = Number(flags.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new UsageError(`Invalid --limit "${flags.limit}". An integer 1-100 (server max 100).`);
+    }
+    input.limit = limit;
   }
   if (flags.cursor !== undefined) input.cursor = flags.cursor;
 
@@ -48,10 +59,13 @@ export async function requestsCommand(ctx: Context, flags: RequestsFlags): Promi
   }
   emitLine(ctx, pc.bold(`Requests (${page.items.length})`));
   for (const r of page.items) {
-    emitLine(ctx, `  ${statusColor(r.status)}  ${r.requestId}  ${pc.dim(r.createdAt)}`);
+    emitLine(
+      ctx,
+      `  ${statusColor(r.status)}  ${r.requestId}  ${pc.cyan(r.customerId)}  ${pc.dim(r.documentCode)}  ${pc.dim(r.createdAt)}`,
+    );
   }
   if (page.nextCursor) {
-    note(ctx, pc.dim(`More: agreely requests --cursor ${page.nextCursor}`));
+    note(ctx, pc.dim(`More: agreely requests list --cursor ${page.nextCursor}`));
   }
 }
 
