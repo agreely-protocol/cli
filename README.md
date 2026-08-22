@@ -104,8 +104,9 @@ agreely config set --api-key <k> [--base-url <url>]   # non-interactive store (f
 
 ```sh
 agreely check cust-42 "Email Address" "Marketing Outreach" --json
-# {"decision":"allow","status":"active","consentRef":"0x…"}      exit 0
-# {"decision":"deny","status":"revoked","consentRef":"0x…"}      exit 10
+# {"decision":"allow","status":"active","consentRef":"0x…"}                    exit 0
+# {"decision":"deny","status":"revoked","consentRef":"0x…"}                    exit 10
+# {"decision":"allow","status":"necessity","basis":"necessary_for_service"}    exit 0
 ```
 
 **Labels are bilingual and accent-tolerant.** The `category` and `purpose` may be
@@ -113,6 +114,35 @@ given in French OR English, with or without accents, and are matched case- and
 whitespace-insensitively. English resolves only when the company disclosed an English
 label for that cell. An ambiguous or undeclared label fails closed (deny / `none`), so
 pass the label as declared in the catalog when you can.
+
+**An allow is not always a consent.** `status: "necessity"` means there is **no
+consent record**: the allow rests on a non-consent lawful basis the company
+*declared* on the catalog cell, and the `basis` field names it (`contract`,
+`necessary_for_service`, `security_fraud`, `legal_obligation`,
+`professional_contact`). Such a decision has no `consentRef` and no `assurance`,
+so if you are piping this into a report, **read `basis`**: without it a necessity
+allow is indistinguishable from a consented one. Agreely records the declared
+basis; it does not certify its legal validity.
+
+The other deny statuses you will see are `none` (no record, and also what an
+**erased** cell reads as), `expired`, `relationship_ended` (art. 23: the company
+attested the purposes are accomplished; the per-cell consent stays truthfully
+active) and `sensitive_requires_consent` (the company declared the cell sensitive,
+so it fails closed to express consent). Treat any status you do not recognise as a
+deny and read `decision`, which is only ever `allow` or `deny`.
+
+### `check --batch`
+
+```sh
+agreely check --batch cells.json --json    # cells.json: [{customerRef, category, purpose}, …]
+```
+
+One request for the whole file, exit 0 when every cell allows and exit 10 when any
+denies. The server caps a batch at **500 cells**: an over-cap file is refused
+before the request is sent (exit 2, with the count in the message), so split large
+files yourself. The API also allows **120 requests per minute per company** (per
+company, not per key), and one `--batch` run is one request, which is the point of
+batch mode.
 
 ### `request create`
 

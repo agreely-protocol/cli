@@ -6,11 +6,12 @@ hardcodes no contract address.
 
 ## Blockers before publish (must be resolved, in order)
 
-1. **Publish `@agreely/sdk` first.** Its mainnet registry address is already
-   deployed, verified, and filled (Base mainnet chainId 8453,
-   `0x1E3121CFB5dfE1ac0b0265790D2bdA709725cF8B` - see that package's
-   `PUBLISHING.md`). The CLI's default on-chain behavior comes from the
-   installed SDK.
+1. **Publish `@agreely/sdk` first.** Its mainnet registry address is pinned by
+   hand and must be re-checked against the live deployment before every release
+   (Base mainnet chainId 8453, currently `0x23577fafFa306375028D33a559D0F95Ced9424DB` - see that
+   package's `PUBLISHING.md` for the two verification commands). The CLI's default
+   on-chain behavior comes entirely from the installed SDK; the CLI itself pins no
+   contract address.
 
 2. **Swap the local path dependency for the published version.** Right now, for
    local build/test, `package.json` uses:

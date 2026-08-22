@@ -3,7 +3,7 @@
 // fails loudly — that is how we prove agent mode never prompts.
 
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -119,6 +119,57 @@ describe("exit-code mapping (the agent contract)", () => {
     h.checkDetailed.mockRejectedValue(new AgreelyUnavailableError("down", { status: 503 }));
     const io = makeIo({ env: ENV });
     expect(await run(argv("check", "c", "Cat", "Pur", "--json"), io.io)).toBe(EXIT.UNAVAILABLE);
+  });
+
+  // A NECESSITY allow has no consentRef and no assurance, so without `basis` it is
+  // indistinguishable from a consented allow to anything reading --json. openapi.yaml
+  // documents the field and the API returns it; the CLI used to drop it.
+  it("emits the declared basis on a necessity allow (--json)", async () => {
+    h.checkDetailed.mockResolvedValue({
+      decision: "allow",
+      status: "necessity",
+      basis: "necessary_for_service",
+      checkedAt: "t",
+    });
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("check", "c", "Cat", "Pur", "--json"), io.io)).toBe(EXIT.OK);
+    const emitted = JSON.parse(io.out()) as Record<string, unknown>;
+    expect(emitted["status"]).toBe("necessity");
+    expect(emitted["basis"]).toBe("necessary_for_service");
+    expect(emitted["consentRef"]).toBeUndefined();
+  });
+
+  it("omits basis on a consent-backed allow (--json)", async () => {
+    h.checkDetailed.mockResolvedValue(allow);
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("check", "c", "Cat", "Pur", "--json"), io.io)).toBe(EXIT.OK);
+    const emitted = JSON.parse(io.out()) as Record<string, unknown>;
+    expect(emitted["consentRef"]).toBe("0xabc");
+    expect(emitted).not.toHaveProperty("basis");
+  });
+
+  it("emits the declared basis on a necessity allow inside a batch (--json)", async () => {
+    h.checkBatch.mockResolvedValue([
+      {
+        customerRef: "c1",
+        category: "Cat",
+        purpose: "Pur",
+        decision: "allow",
+        status: "necessity",
+        basis: "legal_obligation",
+        checkedAt: "t",
+      },
+    ]);
+    const io = makeIo({ env: ENV });
+    const file = join(tmpdir(), `agreely-cli-basis-${process.pid}.json`);
+    writeFileSync(file, JSON.stringify([{ customerRef: "c1", category: "Cat", purpose: "Pur" }]));
+    try {
+      expect(await run(argv("check", "--batch", file, "--json"), io.io)).toBe(EXIT.OK);
+    } finally {
+      unlinkSync(file);
+    }
+    const emitted = JSON.parse(io.out()) as Array<Record<string, unknown>>;
+    expect(emitted[0]!["basis"]).toBe("legal_obligation");
   });
 
   it("billing inactive (402) -> 7 (distinct from both deny and outage)", async () => {

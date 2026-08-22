@@ -15,6 +15,20 @@
 // English, with or without accents, matched case- and whitespace-insensitively; English
 // resolves only when the company disclosed an English label, and ambiguous/undeclared
 // labels fail closed.
+//
+// NECESSITY ALLOWS. An allow can carry status "necessity": there is NO signed consent
+// record, and the allow rests on a non-consent lawful basis the company DECLARED on the
+// catalog cell (contract / necessary_for_service / security_fraud / legal_obligation /
+// professional_contact). Such an allow has no consentRef and no assurance, so without
+// the basis it is indistinguishable from a consented allow to anything reading this
+// output. We therefore ALWAYS surface `basis`, in both --json and human mode. Agreely
+// records the declared basis; it does not certify its legal validity, and a necessity
+// allow must never be reported as "consented".
+//
+// BATCH SIZE. The server caps a batch at 500 cells. The SDK refuses an over-cap file
+// before the wire call (AgreelyConfigError -> exit 2), so split large files yourself.
+// The /v1 tier also allows 120 requests per minute per company; one --batch run is one
+// request, which is the point of batch mode.
 
 import { readFile } from "node:fs/promises";
 import type { BatchCheckItem, BatchDecision, CheckResult } from "@agreely/sdk";
@@ -54,18 +68,22 @@ async function singleMode(
   const result: CheckResult = await client.checkDetailed(customerId, category, purpose);
   const allowed = result.decision === "allow";
 
+  const basis = declaredBasis(result);
+
   if (ctx.agent) {
     emitJson(ctx, {
       decision: result.decision,
       status: result.status,
       ...(result.consentRef !== undefined ? { consentRef: result.consentRef } : {}),
+      ...(basis !== undefined ? { basis } : {}),
     });
   } else if (allowed) {
     const ref = result.consentRef ? pc.dim(` ref ${result.consentRef}`) : "";
+    const why = basis !== undefined ? pc.dim(` declared basis ${basis}, no consent record`) : "";
     emitLine(
       ctx,
       `${pc.green("✓ ALLOW")}  ${pc.bold(customerId)} · ${category} / ${purpose}  ` +
-        `${pc.dim(`(${result.status})`)}${ref}`,
+        `${pc.dim(`(${result.status})`)}${ref}${why}`,
     );
   } else {
     emitLine(
@@ -119,22 +137,28 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
   const anyDeny = decisions.some((d) => d.decision === "deny");
 
   if (ctx.agent) {
-    emitJson(ctx, decisions.map((d) => ({
-      customerRef: d.customerRef,
-      category: d.category,
-      purpose: d.purpose,
-      decision: d.decision,
-      status: d.status,
-      ...(d.consentRef !== undefined ? { consentRef: d.consentRef } : {}),
-    })));
+    emitJson(ctx, decisions.map((d) => {
+      const basis = declaredBasis(d);
+      return {
+        customerRef: d.customerRef,
+        category: d.category,
+        purpose: d.purpose,
+        decision: d.decision,
+        status: d.status,
+        ...(d.consentRef !== undefined ? { consentRef: d.consentRef } : {}),
+        ...(basis !== undefined ? { basis } : {}),
+      };
+    }));
   } else {
     for (const d of decisions) {
       if (d.decision === "allow") {
         const ref = d.consentRef ? pc.dim(` ref ${d.consentRef}`) : "";
+        const basis = declaredBasis(d);
+        const why = basis !== undefined ? pc.dim(` declared basis ${basis}, no consent record`) : "";
         emitLine(
           ctx,
           `${pc.green("✓ ALLOW")}  ${pc.bold(d.customerRef)} · ${d.category} / ${d.purpose}  ` +
-            `${pc.dim(`(${d.status})`)}${ref}`,
+            `${pc.dim(`(${d.status})`)}${ref}${why}`,
         );
       } else {
         emitLine(
@@ -147,4 +171,16 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
   }
 
   ctx.exit = anyDeny ? EXIT.DENY : EXIT.OK;
+}
+
+/**
+ * The DECLARED non-consent lawful basis behind a `status: "necessity"` allow, or
+ * undefined. openapi.yaml documents `basis` on both CheckDecision and BatchDecision and
+ * the API returns it, but the field is typed only from @agreely/sdk 0.3.0 onward, so we
+ * read it structurally: that builds against the pinned 0.2.0 AND against later versions,
+ * and it costs nothing (the SDK passes wire fields through verbatim).
+ */
+function declaredBasis(decision: CheckResult | BatchDecision): string | undefined {
+  const basis = (decision as { basis?: unknown }).basis;
+  return typeof basis === "string" && basis !== "" ? basis : undefined;
 }
