@@ -3,6 +3,22 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## 0.3.1 - 2026-08-22
+
+### Fixed
+
+- **`agreely --version` printed `0.2.0` on 0.3.0.** The version is a hand-kept
+  constant in `src/cli.ts`, deliberately separate from `package.json` so that a
+  bundled bin never does a runtime filesystem read to answer `--version`, and
+  0.3.0 shipped with that constant un-bumped. ONLY the self-reported string was
+  wrong. 0.3.0 already depends on `@agreely/sdk` `^0.3.0`, so it carried the
+  corrected verifier (the live Base mainnet registry and the fixed DID
+  resolution hosts) exactly as intended: no consent decision, receipt
+  verification or exit code behaved differently.
+- A unit test now asserts that constant equals the `package.json` version. The
+  two can no longer drift apart without failing `npm test`, which the publish
+  steps already require.
+
 ## 0.3.0 - 2026-08-22
 
 ### Fixed
