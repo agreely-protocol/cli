@@ -3,7 +3,7 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## Unreleased (recommend 0.2.1)
+## 0.3.0 - 2026-08-22
 
 ### Fixed
 
@@ -18,15 +18,26 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Requires `@agreely/sdk` `^0.3.0`: the SDK floor moved a full minor.** This is
+  why the CLI goes to 0.3.0 and not the 0.2.1 the fix above would suggest on its
+  own. `@agreely/sdk` 0.2.0 pinned a DEAD Base mainnet registry address, and
+  `agreely verify --onchain` passes only an RPC URL: it never sets
+  `registryAddress`, so it inherited that constant wholesale and reported
+  `documentAnchor: "fail"` on valid mainnet evidence, which reads as tampering.
+  Anyone installing the CLI must get the fixed verifier. The same SDK release
+  moves the default DID resolution hosts (`app.agreely.ca` for company DIDs,
+  `my.agreely.ca` for citizen DIDs), which `agreely verify` also inherits, so
+  citizen receipts stop reporting `unavailable` out of the box.
 - Documented the batch cap (500 cells, refused client-side before the request, exit
   2) and the rate limit (120 requests per minute per COMPANY, not per key), and the
   full deny vocabulary including `sensitive_requires_consent`.
 
 ### Note
 
-- `basis` is read structurally, so this works against the pinned `@agreely/sdk`
-  0.2.0 as well as later versions. When the SDK republishes with `basis` typed,
-  bump the dependency and this can be simplified (that release should be 0.3.0).
+- `basis` is still read structurally rather than off the SDK type, so the command
+  keeps working against an older installed `@agreely/sdk`. Now that the floor is
+  0.3.0 the field is typed upstream and that read could be simplified, which is
+  deliberately left for a later release to keep this one to the verifier fix.
 
 ## 0.2.0
 

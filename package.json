@@ -1,7 +1,7 @@
 {
   "name": "@agreely/cli",
-  "version": "0.2.0",
-  "description": "The Agreely CLI — a one-call consent gate for humans (interactive) and agents (scriptable JSON). A thin shell over @agreely/sdk.",
+  "version": "0.3.0",
+  "description": "The Agreely CLI: a one-call consent gate for humans (interactive) and agents (scriptable JSON). A thin shell over @agreely/sdk.",
   "license": "MIT",
   "type": "module",
   "publishConfig": {
@@ -30,7 +30,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@agreely/sdk": "^0.2.0",
+    "@agreely/sdk": "^0.3.0",
     "@clack/prompts": "^0.7.0",
     "commander": "^12.1.0",
     "picocolors": "^1.1.1"
