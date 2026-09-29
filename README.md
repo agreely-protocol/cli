@@ -65,7 +65,7 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | code | meaning |
 | --- | --- |
 | `0` | success / check **ALLOW** |
-| `2` | usage or validation error (bad/missing args, invalid input, no credentials) |
+| `2` | usage or validation error (bad/missing args, invalid input, no credentials), a `404`, or a `409` state conflict (envelope code `conflict`) |
 | `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
 | `4` | **unavailable** - an Agreely outage (distinct from a deny) |
 | `5` | rate-limited - the per-company window was exceeded |
@@ -86,11 +86,11 @@ still goes to stdout; a real error keeps stdout clean and writes a
 ```sh
 agreely check <customerId> <category> <purpose> [--json]
 agreely catalog [--json]
-agreely requests list [--customer <ref>] [--status pending|approved|refused|expired|revoked_before_action] [--limit <n>] [--cursor <id>] [--json]  # metadata only; bare `agreely requests ...` is a kept alias
+agreely requests list [--customer <ref>] [--status pending|approved|asks_declined|refused|expired|revoked_before_action] [--limit <n>] [--cursor <id>] [--json]  # metadata only; bare `agreely requests ...` is a kept alias
 agreely request create [--customer <id> --to <email> (--document <versionId> | --document-code <code>) --valid-until <YYYY-MM-DD>] [--idempotency-key <k>] [--json]
 agreely request show <requestId> [--json]      # requestId is 0x + 64 hex
 agreely request cancel <requestId> [--json]    # cancel a pending request (idempotent)
-agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> --item <catalogId|category:purpose> ... --pdf <path> [--upload] [--json]
+agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> [--item <catalogId|category:purpose> ...] --pdf <path> [--upload] [--json]
 agreely manual-consent claim-link --customer <id> [--reference <ref>] [--json]
 agreely manual-consent revoke <consentRef> [--reason <text>] [--json]
 agreely relationship end <customerRef> --reason <text> [--json]      # end a customer relationship (art. 23; idempotent)
@@ -104,8 +104,8 @@ agreely config set --api-key <k> [--base-url <url>]   # non-interactive store (f
 
 ```sh
 agreely check cust-42 "Email Address" "Marketing Outreach" --json
-# {"decision":"allow","status":"active","consentRef":"0x…"}                    exit 0
-# {"decision":"deny","status":"revoked","consentRef":"0x…"}                    exit 10
+# {"decision":"allow","status":"active","consentRef":"0x…","assurance":"citizen_signed","tier":"full"}   exit 0
+# {"decision":"deny","status":"revoked","consentRef":"0x…","assurance":"company_attested","tier":"manual"}  exit 10
 # {"decision":"allow","status":"necessity","basis":"necessary_for_service"}    exit 0
 ```
 
@@ -124,12 +124,31 @@ so if you are piping this into a report, **read `basis`**: without it a necessit
 allow is indistinguishable from a consented one. Agreely records the declared
 basis; it does not certify its legal validity.
 
-The other deny statuses you will see are `none` (no record, and also what an
-**erased** cell reads as), `expired`, `relationship_ended` (art. 23: the company
-attested the purposes are accomplished; the per-cell consent stays truthfully
-active) and `sensitive_requires_consent` (the company declared the cell sensitive,
-so it fails closed to express consent). Treat any status you do not recognise as a
-deny and read `decision`, which is only ever `allow` or `deny`.
+**A cell declared sensitive answers by its basis like any other.** On `consent` it
+denies `none` until a real consent is on record (and that consent must be express);
+on a non-consent basis the company's act carries, it allows `necessity` with
+`basis`. There is no longer a separate `sensitive_requires_consent` status: the
+server stopped emitting it on 2026-09-28.
+
+**Read the proof tier, not just the decision.** A record-backed decision carries
+`assurance` and `tier`, the same proof under two names: `citizen_signed` / `full`
+(the person signed with a passkey), `company_attested` / `manual` (a hand-signed
+paper) and `company_documented` / `verbal` (a consent given by telephone and
+documented by your organisation, with no document). A telephone consent allows
+exactly like the others; **your system decides what each tier may unlock**, so
+treat an `assurance` or `tier` you do not recognise as not acceptable.
+
+**An informed line is not a consent.** A line the document gives for information,
+acknowledged on a paper sheet or a call, answers like no record at all
+(`necessity` with its `basis`, or the usual deny), with no `consentRef` and no
+`assurance`. Once withdrawn it denies `revoked` with a `consentRef` and still no
+`assurance` or `tier`.
+
+The other deny statuses you will see are `none`, `revoked`, `expired`, `erased`,
+`relationship_ended` (art. 23: the company attested the purposes are accomplished;
+the per-cell consent stays truthfully active), `requires_depersonalization` and
+`basis_not_in_regime`. Treat any status you do not recognise as a deny and read
+`decision`, which is only ever `allow` or `deny`.
 
 ### `check --batch`
 
@@ -164,6 +183,16 @@ is no `--item` flag on this command. Reuse `--idempotency-key` to make a retry
 safe - a replay returns the original request, with no double-issue and no
 double-email.
 
+`--valid-until` is a calendar date and means **through the end of that day in
+your company's timezone**. It must be within 10 years (an Agreely product ceiling,
+not a statutory one), and relative phrases such as "+1 year" are refused.
+
+A request's status is `pending`, `approved`, `asks_declined`, `refused`, `expired`
+or `revoked_before_action`. `asks_declined` means the person confirmed receiving
+the information but declined **every** consent ask, so no consent was obtained; it
+is never listed under `--status approved`, and `approved` means at least one ask was
+accepted. `request wait` returns as soon as a request is no longer `pending`.
+
 Interactive (human) - run it with no flags at a TTY and a wizard collects the
 document reference, customer, recipient email, and valid-until, validates each,
 and confirms before issuing.
@@ -180,13 +209,38 @@ agreely manual-consent create \
   --effective-date 2026-06-01 --valid-until 2031-01-01 \
   --item "Email Address:Marketing Outreach" --item 4b082452-… \
   --pdf ./signed-consent.pdf --json
-# -> {"consentId":"…","merkleRoot":"0x…","consentRefs":["0x…"],"assurance":"company_attested","anchored":false}
+# -> {"consentId":"…","merkleRoot":"0x…","consentRefs":["0x…"],"assurance":"company_attested","anchored":false,"acknowledged":[…],"asksDeclined":false}
 ```
 
+`--item` names the consent asks **ticked** on the sheet. Omit it entirely for a
+sheet that answered "no" to every ask. The server adds every line the document
+gives for information as an acknowledgement (never a consent) and ignores one you
+name; the response lists those lines in `acknowledged` and sets `asksDeclined`
+when no ask was consented. A document that asks no consent (a collection notice)
+is refused (exit `2`).
+
+`--valid-until` means through the end of that day in your company's timezone, at
+most 10 years after `--effective-date`.
+
 The PDF is hashed **locally** (`0x` + SHA-256); only that commitment is sent. The
-file bytes leave the machine **only** when you pass `--upload`. Hand the subject a
-self-claim link with `manual-consent claim-link --customer <id>`, and revoke an
-attestation with `manual-consent revoke <consentRef> [--reason <text>]`.
+file bytes leave the machine **only** when you pass `--upload`, and the server then
+checks them against the hash. An empty file is refused, and so is an upload that is
+not a PDF.
+
+A `409` (exit `2`, envelope code `conflict`) means the request contradicts the
+record: a purpose already held by an active passkey-signed consent, a verbal
+consent for the same customer and document still awaiting its signed paper, or a
+relationship that has ended.
+
+Hand the subject a self-claim link with `manual-consent claim-link --customer <id>`
+(an unknown customer is a `404`, an ended relationship a `409`, both exit `2`), and
+withdraw a consent with `manual-consent revoke <consentRef> [--reason <text>]`. The
+result's `gate` says what `check` answers now for that purpose: `denied` (this
+consent backed it), `superseded` (a later consent had already taken over and is
+untouched) or `unchanged` (an idempotent repeat).
+
+Recording a consent given by telephone (scope `attest_verbal`) is not in the CLI
+yet; it follows the `@agreely/sdk` 0.4.0 release.
 
 ### `relationship`
 

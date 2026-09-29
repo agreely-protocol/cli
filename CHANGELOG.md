@@ -3,6 +3,43 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+Brought in line with the production /v1 API. Still builds against `@agreely/sdk`
+`^0.3.0`: the new wire fields are read structurally, not through 0.4.0 types.
+
+### Fixed
+
+- **`request wait` timed out on a request whose every consent ask was declined.**
+  SDK 0.3.0's `waitForSettlement` does not know the `asks_declined` status, so such a
+  request polled until the budget ran out and exited `4`. The CLI now polls
+  `consentRequests.get` itself and settles on any status other than `pending`.
+- **A `409` exited `4` as if Agreely were down.** SDK 0.3.0 surfaces a 409 as a
+  non-retryable `AgreelyUnavailableError`. A 409 is a state conflict (a purpose
+  held by a stronger active consent, a verbal consent still awaiting its paper, an
+  ended relationship), so it now exits `2` with envelope code `conflict`.
+- **`check` dropped `assurance`, and never showed the new `tier`.** Both are now
+  passed through in `--json` (single and batch) and shown in human mode, including
+  `company_documented` / `verbal` for a consent given by telephone.
+- **`manual-consent create` required at least one `--item`.** A sheet that answered
+  "no" to every ask is valid: `--item` may now be omitted. The human output lists
+  the `acknowledged` informed lines and says when `asksDeclined`. An empty file is
+  refused locally, and so is an `--upload` that is not a PDF, because the server
+  refuses both.
+- `manual-consent revoke` shows the new `gate` (`denied`, `superseded` or
+  `unchanged`) in human mode; `--json` already passed it through.
+
+### Changed
+
+- `requests list --status` accepts `asks_declined`. `approved` no longer includes
+  a request whose every ask was declined.
+- README: removed `sensitive_requires_consent` (no longer emitted since
+  2026-09-28: a sensitive cell answers by its declared basis), documented `tier`,
+  `assurance`, informed lines, the full deny status list, the meaning of
+  `--valid-until` (end of that day in the company's timezone, 10-year ceiling, no
+  relative phrases), the manual-consent and claim-link `404`/`409` cases, and noted
+  that verbal-consent commands follow the SDK 0.4.0 release.
+
 ## 0.3.1 - 2026-08-22
 
 ### Fixed
