@@ -25,6 +25,15 @@
 // records the declared basis; it does not certify its legal validity, and a necessity
 // allow must never be reported as "consented".
 //
+// PROOF TIER. A record-backed decision carries `assurance` (citizen_signed |
+// company_attested | company_documented) and `tier` (full | manual | verbal), the same
+// proof under two names. The HOST decides what each tier may unlock (a telephone
+// consent is tier "verbal", assurance "company_documented"), so both are passed through
+// in --json and shown in human mode. An acknowledged informed line (information given,
+// never a consent) answers like no record; once withdrawn it denies "revoked" with a
+// consentRef and NO assurance or tier. Treat an unknown assurance or tier as NOT
+// acceptable.
+//
 // BATCH SIZE. The server caps a batch at 500 cells. The SDK refuses an over-cap file
 // before the wire call (AgreelyConfigError -> exit 2), so split large files yourself.
 // The /v1 tier also allows 120 requests per minute per company; one --batch run is one
@@ -69,12 +78,14 @@ async function singleMode(
   const allowed = result.decision === "allow";
 
   const basis = declaredBasis(result);
+  const proof = proofOf(result);
 
   if (ctx.agent) {
     emitJson(ctx, {
       decision: result.decision,
       status: result.status,
       ...(result.consentRef !== undefined ? { consentRef: result.consentRef } : {}),
+      ...proof,
       ...(basis !== undefined ? { basis } : {}),
     });
   } else if (allowed) {
@@ -83,7 +94,7 @@ async function singleMode(
     emitLine(
       ctx,
       `${pc.green("✓ ALLOW")}  ${pc.bold(customerId)} · ${category} / ${purpose}  ` +
-        `${pc.dim(`(${result.status})`)}${ref}${why}`,
+        `${pc.dim(`(${result.status})`)}${proofLabel(proof)}${ref}${why}`,
     );
   } else {
     emitLine(
@@ -146,6 +157,7 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
         decision: d.decision,
         status: d.status,
         ...(d.consentRef !== undefined ? { consentRef: d.consentRef } : {}),
+        ...proofOf(d),
         ...(basis !== undefined ? { basis } : {}),
       };
     }));
@@ -158,7 +170,7 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
         emitLine(
           ctx,
           `${pc.green("✓ ALLOW")}  ${pc.bold(d.customerRef)} · ${d.category} / ${d.purpose}  ` +
-            `${pc.dim(`(${d.status})`)}${ref}${why}`,
+            `${pc.dim(`(${d.status})`)}${proofLabel(proofOf(d))}${ref}${why}`,
         );
       } else {
         emitLine(
@@ -183,4 +195,27 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
 function declaredBasis(decision: CheckResult | BatchDecision): string | undefined {
   const basis = (decision as { basis?: unknown }).basis;
   return typeof basis === "string" && basis !== "" ? basis : undefined;
+}
+
+/**
+ * The proof fields of a record-backed decision: `assurance` and `tier`, passed through
+ * verbatim when present. Read structurally because `tier` and the `company_documented`
+ * assurance are typed only from @agreely/sdk 0.4.0 onward, and this CLI still builds
+ * against 0.3.0 (the SDK passes wire fields through verbatim either way).
+ */
+function proofOf(decision: CheckResult | BatchDecision): { assurance?: string; tier?: string } {
+  const wire = decision as { assurance?: unknown; tier?: unknown };
+  return {
+    ...(typeof wire.assurance === "string" && wire.assurance !== "" ? { assurance: wire.assurance } : {}),
+    ...(typeof wire.tier === "string" && wire.tier !== "" ? { tier: wire.tier } : {}),
+  };
+}
+
+/** The human rendering of the proof tier, e.g. " tier verbal (company_documented)", or "". */
+function proofLabel(proof: { assurance?: string; tier?: string }): string {
+  if (proof.tier !== undefined) {
+    const assurance = proof.assurance !== undefined ? ` (${proof.assurance})` : "";
+    return pc.dim(` tier ${proof.tier}${assurance}`);
+  }
+  return proof.assurance !== undefined ? pc.dim(` ${proof.assurance}`) : "";
 }

@@ -11,9 +11,14 @@ import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, note, pc } from "../output.js";
 
-const STATUSES: ConsentRequestStatus[] = [
+// "asks_declined" is a request the person answered by declining EVERY consent ask (only
+// the lines given for information were acknowledged): no consent was obtained, so the
+// server never returns it under "approved". Typed as string because the value joined
+// ConsentRequestStatus only in @agreely/sdk 0.4.0.
+const STATUSES: readonly string[] = [
   "pending",
   "approved",
+  "asks_declined",
   "refused",
   "expired",
   "revoked_before_action",
@@ -32,7 +37,7 @@ export async function requestsCommand(ctx: Context, flags: RequestsFlags): Promi
   const input: ListConsentRequestsInput = {};
   if (flags.customer !== undefined) input.customerId = flags.customer;
   if (flags.status !== undefined) {
-    if (!STATUSES.includes(flags.status as ConsentRequestStatus)) {
+    if (!STATUSES.includes(flags.status)) {
       throw new UsageError(`Invalid --status "${flags.status}". One of: ${STATUSES.join(", ")}.`);
     }
     input.status = flags.status as ConsentRequestStatus;
@@ -69,13 +74,14 @@ export async function requestsCommand(ctx: Context, flags: RequestsFlags): Promi
   }
 }
 
-function statusColor(status: ConsentRequestStatus): string {
+function statusColor(status: string): string {
   switch (status) {
     case "approved":
       return pc.green(status.padEnd(21));
     case "pending":
       return pc.yellow(status.padEnd(21));
     case "refused":
+    case "asks_declined":
     case "revoked_before_action":
       return pc.red(status.padEnd(21));
     default:

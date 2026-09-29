@@ -4,13 +4,21 @@
 //
 //   create   --customer <id> --document-version <id>
 //            --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD>
-//            --item <id|cat:purpose> [--item ...] --pdf <path> [--upload] [--json]
+//            [--item <id|cat:purpose> ...] --pdf <path> [--upload] [--json]
 //   claim-link --customer <id> [--reference <ref>] [--json]
 //   revoke   <consentRef> --reason <text> [--json]
 //
 // The PDF is hashed LOCALLY (node crypto): only the "0x"+sha256 commitment is sent
 // by default. The bytes leave the machine ONLY when --upload is passed. That local
 // minimization is the whole point of the offline path.
+//
+// --item names the consent asks TICKED on the sheet, and may be omitted entirely (a
+// sheet that answered "no" to every ask). The server adds every line the document
+// gives for information as an acknowledgement (never a consent) and ignores one named
+// here; the response reports those lines in `acknowledged` and says `asksDeclined`
+// when no ask was consented. A document that asks no consent (a collection notice) is
+// refused by the server. An empty file is refused locally, and so is an uploaded file
+// that is not a PDF, because the server refuses both.
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -30,6 +38,7 @@ import { emitJson, emitLine, pc } from "../output.js";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CONSENT_REF_RE = /^0x[0-9a-f]+$/i;
+const PDF_MAGIC = Buffer.from("%PDF-");
 
 export interface ManualConsentCreateFlags {
   customer?: string;
@@ -63,6 +72,18 @@ export async function manualConsentCreateCommand(
   for (const ref of recorded.consentRefs) {
     emitLine(ctx, `    · ${pc.cyan(ref)}`);
   }
+  // Read structurally: `acknowledged` and `asksDeclined` are typed only from
+  // @agreely/sdk 0.4.0 onward, and this CLI still builds against 0.3.0.
+  const extra = recorded as { acknowledged?: unknown; asksDeclined?: unknown };
+  if (Array.isArray(extra.acknowledged) && extra.acknowledged.length > 0) {
+    emitLine(ctx, `  ${pc.bold("acknowledged")} ${pc.dim("(information given, never a consent)")}`);
+    for (const line of extra.acknowledged as { category?: unknown; purpose?: unknown }[]) {
+      emitLine(ctx, `    · ${String(line.category)} / ${String(line.purpose)}`);
+    }
+  }
+  if (extra.asksDeclined === true) {
+    emitLine(ctx, pc.yellow("  Every consent ask was answered no: only the acknowledgement was recorded."));
+  }
 }
 
 /** Build (and validate) the SDK record input, hashing the PDF locally. Throws UsageError. */
@@ -83,11 +104,8 @@ async function buildRecordInput(flags: ManualConsentCreateFlags): Promise<Record
   if (!validUntil) throw new UsageError("--valid-until <YYYY-MM-DD> is required.");
   if (!DATE_RE.test(validUntil)) throw new UsageError(`--valid-until "${validUntil}" must be YYYY-MM-DD.`);
 
-  const rawItems = flags.item ?? [];
-  if (rawItems.length === 0) {
-    throw new UsageError("At least one --item <catalogId|category:purpose> is required.");
-  }
-  const items: IssueItem[] = rawItems.map(parseItem);
+  // May be empty: a sheet that answered "no" to every consent ask.
+  const items: IssueItem[] = (flags.item ?? []).map(parseItem);
 
   const pdfPath = flags.pdf?.trim();
   if (!pdfPath) throw new UsageError("--pdf <path> is required (its SHA-256 is computed locally).");
@@ -97,6 +115,12 @@ async function buildRecordInput(flags: ManualConsentCreateFlags): Promise<Record
     bytes = await readFile(pdfPath);
   } catch {
     throw new UsageError(`Could not read --pdf "${pdfPath}".`);
+  }
+  if (bytes.length === 0) {
+    throw new UsageError(`--pdf "${pdfPath}" is empty: hash the scanned signed sheet itself.`);
+  }
+  if (flags.upload && !bytes.subarray(0, 5).equals(PDF_MAGIC)) {
+    throw new UsageError(`--pdf "${pdfPath}" is not a PDF (no %PDF- header); the server refuses it on --upload.`);
   }
   const pdfSha256 = "0x" + createHash("sha256").update(bytes).digest("hex");
 
@@ -168,6 +192,13 @@ export async function manualConsentRevokeCommand(
 
   const tag = result.alreadyRevoked ? pc.dim("(already revoked)") : "";
   emitLine(ctx, `${pc.green("✓")} Revoked ${pc.bold(result.consentRef)} ${tag}`);
+  // `gate` says what check answers NOW for that purpose: "denied" (this consent backed
+  // it), "superseded" (a later consent had already taken it over and is untouched) or
+  // "unchanged" (an idempotent repeat). Read structurally: typed from @agreely/sdk 0.4.0.
+  const gate = (result as { gate?: unknown }).gate;
+  if (typeof gate === "string") {
+    emitLine(ctx, `  ${pc.bold("gate")}  ${gate}`);
+  }
 }
 
 export interface ManualConsentEraseFlags {

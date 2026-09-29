@@ -12,7 +12,6 @@ import {
   AgreelyBillingInactiveError,
   AgreelyNotFoundError,
   AgreelyRateLimitError,
-  AgreelyTimeoutError,
   AgreelyUnavailableError,
   AgreelyValidationError,
 } from "@agreely/sdk";
@@ -137,6 +136,47 @@ describe("exit-code mapping (the agent contract)", () => {
     expect(emitted["status"]).toBe("necessity");
     expect(emitted["basis"]).toBe("necessary_for_service");
     expect(emitted["consentRef"]).toBeUndefined();
+  });
+
+  it("passes the proof tier and assurance through on a record-backed allow (--json)", async () => {
+    h.checkDetailed.mockResolvedValue({
+      decision: "allow",
+      status: "active",
+      consentRef: "0xabc",
+      assurance: "company_documented",
+      tier: "verbal",
+      checkedAt: "t",
+    });
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("check", "c", "Cat", "Pur", "--json"), io.io)).toBe(EXIT.OK);
+    expect(JSON.parse(io.out())).toEqual({
+      decision: "allow",
+      status: "active",
+      consentRef: "0xabc",
+      assurance: "company_documented",
+      tier: "verbal",
+    });
+  });
+
+  it("shows the tier in human mode", async () => {
+    h.checkDetailed.mockResolvedValue({
+      decision: "allow",
+      status: "active",
+      consentRef: "0xabc",
+      assurance: "company_attested",
+      tier: "manual",
+      checkedAt: "t",
+    });
+    const io = makeIo({ env: ENV, isTTY: true });
+    expect(await run(argv("check", "c", "Cat", "Pur"), io.io)).toBe(EXIT.OK);
+    expect(io.out()).toContain("tier manual (company_attested)");
+  });
+
+  it("a withdrawn informed line denies revoked with a consentRef and no proof fields (--json)", async () => {
+    h.checkDetailed.mockResolvedValue({ decision: "deny", status: "revoked", consentRef: "0xdef", checkedAt: "t" });
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("check", "c", "Cat", "Pur", "--json"), io.io)).toBe(EXIT.DENY);
+    expect(JSON.parse(io.out())).toEqual({ decision: "deny", status: "revoked", consentRef: "0xdef" });
   });
 
   it("omits basis on a consent-backed allow (--json)", async () => {
@@ -473,6 +513,14 @@ describe("requests list (customerId + status + limit + cursor filters)", () => {
     expect(h.list).toHaveBeenCalledWith({});
   });
 
+  it("accepts asks_declined as a --status filter", async () => {
+    h.list.mockResolvedValue({ items: [], nextCursor: null });
+    const io = makeIo({ env: ENV });
+    const code = await run(argv("requests", "list", "--status", "asks_declined", "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(h.list).toHaveBeenCalledWith({ status: "asks_declined" });
+  });
+
   it("rejects an invalid --status (exit 2) and never calls the SDK", async () => {
     const io = makeIo({ env: ENV });
     const code = await run(argv("requests", "list", "--status", "bogus", "--json"), io.io);
@@ -593,6 +641,55 @@ describe("manual-consent create: local PDF hashing (data minimization)", () => {
     const [input] = h.record.mock.calls[0] as [{ evidence: { pdfSha256: string; pdf?: string } }];
     expect(input.evidence.pdfSha256).toBe(EXPECTED_SHA);
     expect(input.evidence.pdf).toBe(PDF_BYTES.toString("base64"));
+  });
+
+  function writeFile(bytes: Buffer): string {
+    const dir = mkdtempSync(join(tmpdir(), "agreely-mc-"));
+    const path = join(dir, "sheet.pdf");
+    writeFileSync(path, bytes);
+    return path;
+  }
+
+  const baseArgs = (pdf: string): string[] => [
+    "manual-consent", "create", "--customer", "c", "--document-version", "d",
+    "--effective-date", "2026-06-01", "--valid-until", "2031-01-01", "--pdf", pdf,
+  ];
+
+  it("records a sheet with no --item (every ask answered no) and sends items: []", async () => {
+    h.record.mockResolvedValue({
+      ...recorded,
+      acknowledged: [{ category: "Courriel", purpose: "Service", consentRef: "0x" + "b".repeat(64) }],
+      asksDeclined: true,
+    });
+    const io = makeIo({ env: ENV });
+    expect(await run(argv(...baseArgs(writePdf()), "--json"), io.io)).toBe(EXIT.OK);
+    const [input] = h.record.mock.calls[0] as [{ items: unknown[] }];
+    expect(input.items).toEqual([]);
+    const out = JSON.parse(io.out().trim()) as { asksDeclined: boolean; acknowledged: unknown[] };
+    expect(out.asksDeclined).toBe(true);
+    expect(out.acknowledged).toHaveLength(1);
+  });
+
+  it("refuses an empty file locally (exit 2) and never calls the SDK", async () => {
+    const io = makeIo({ env: ENV });
+    expect(await run(argv(...baseArgs(writeFile(Buffer.alloc(0))), "--json"), io.io)).toBe(EXIT.USAGE);
+    expect(h.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses to upload a file that is not a PDF (exit 2)", async () => {
+    const io = makeIo({ env: ENV });
+    const code = await run(argv(...baseArgs(writeFile(Buffer.from("not a pdf"))), "--upload", "--json"), io.io);
+    expect(code).toBe(EXIT.USAGE);
+    expect(h.record).not.toHaveBeenCalled();
+  });
+
+  // SDK 0.3.0 surfaces a 409 as a non-retryable AgreelyUnavailableError; it is a state
+  // conflict (e.g. a verbal consent still awaiting its paper), never an outage.
+  it("a 409 conflict exits 2 with code conflict, not 4", async () => {
+    h.record.mockRejectedValue(new AgreelyUnavailableError("awaits its paper", { status: 409, retryable: false }));
+    const io = makeIo({ env: ENV });
+    expect(await run(argv(...baseArgs(writePdf()), "--item", "x:y", "--json"), io.io)).toBe(EXIT.USAGE);
+    expect(io.err()).toContain('"conflict"');
   });
 
   it("a missing required flag errors (exit 2) and NEVER prompts or calls the SDK", async () => {
@@ -819,32 +916,47 @@ describe("request wait", () => {
     items: [],
   };
 
-  it("polls to a terminal state and prints the record (JSON)", async () => {
-    h.wait.mockResolvedValue(settled);
+  it("polls until the request is no longer pending and prints the record (JSON)", async () => {
+    h.get.mockResolvedValueOnce({ ...settled, status: "pending", settledAt: null }).mockResolvedValueOnce(settled);
     const io = makeIo({ env: ENV });
     const code = await run(
-      argv("request", "wait", settled.requestId, "--interval", "10", "--timeout", "50", "--json"),
+      argv("request", "wait", settled.requestId, "--interval", "5", "--timeout", "1000", "--json"),
       io.io,
     );
     expect(code).toBe(EXIT.OK);
-    const [requestId, opts] = h.wait.mock.calls[0] as [string, { intervalMs?: number; timeoutMs?: number }];
-    expect(requestId).toBe(settled.requestId);
-    expect(opts).toEqual({ intervalMs: 10, timeoutMs: 50 });
+    expect(h.get).toHaveBeenCalledTimes(2);
+    expect(h.get).toHaveBeenCalledWith(settled.requestId);
     expect(JSON.parse(io.out().trim())).toEqual(settled);
   });
 
-  it("maps a wait timeout to exit 4", async () => {
-    h.wait.mockRejectedValue(new AgreelyTimeoutError("timed out", { lastStatus: "pending" }));
+  // SDK 0.3.0's waitForSettlement does not know asks_declined and would poll until
+  // the budget ran out; the CLI settles on anything that is no longer pending.
+  it("settles on asks_declined (every consent ask declined) instead of timing out", async () => {
+    const declined = { ...settled, status: "asks_declined" };
+    h.get.mockResolvedValue(declined);
     const io = makeIo({ env: ENV });
-    const code = await run(argv("request", "wait", settled.requestId, "--json"), io.io);
+    const code = await run(argv("request", "wait", settled.requestId, "--timeout", "50", "--json"), io.io);
+    expect(code).toBe(EXIT.OK);
+    expect(h.get).toHaveBeenCalledTimes(1);
+    expect((JSON.parse(io.out().trim()) as { status: string }).status).toBe("asks_declined");
+  });
+
+  it("maps a wait timeout to exit 4", async () => {
+    h.get.mockResolvedValue({ ...settled, status: "pending", settledAt: null });
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv("request", "wait", settled.requestId, "--interval", "5", "--timeout", "20", "--json"),
+      io.io,
+    );
     expect(code).toBe(EXIT.UNAVAILABLE);
+    expect(io.err()).toContain("pending");
   });
 
   it("rejects a bad requestId (exit 2)", async () => {
     const io = makeIo({ env: ENV });
     const code = await run(argv("request", "wait", "0xshort", "--json"), io.io);
     expect(code).toBe(EXIT.USAGE);
-    expect(h.wait).not.toHaveBeenCalled();
+    expect(h.get).not.toHaveBeenCalled();
   });
 });
 

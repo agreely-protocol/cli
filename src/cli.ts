@@ -129,7 +129,7 @@ export async function run(
   const withRequestsListFlags = (cmd: Command): Command =>
     cmd
       .option("--customer <ref>", "filter to one subject ref (the company's own customerId)")
-      .option("--status <status>", "filter: pending|approved|refused|expired|revoked_before_action")
+      .option("--status <status>", "filter: pending|approved|asks_declined|refused|expired|revoked_before_action")
       .option("--limit <n>", "page size (server default 50, max 100)")
       .option("--cursor <id>", "page after this requestId (from a prior nextCursor)");
 
@@ -161,7 +161,7 @@ export async function run(
       .option("--to <email>", "the recipient's email")
       .option("--document <versionId>", "the published consent document version id the request is issued under")
       .option("--document-code <code>", "a consent document code (resolves to its published version)")
-      .option("--valid-until <date>", "consent lifespan if approved (YYYY-MM-DD)")
+      .option("--valid-until <date>", "consent end if approved (YYYY-MM-DD, through the end of that day in your company's timezone; at most 10 years)")
       .option("--idempotency-key <key>", "reuse to make a retry safe (no double-issue)"),
   ).action(
     async (
@@ -207,7 +207,7 @@ export async function run(
   withGlobals(
     request
       .command("wait")
-      .description("Poll a request until it settles (approved|refused|expired|revoked_before_action); exit 4 on timeout")
+      .description("Poll a request until it is no longer pending (approved|asks_declined|refused|expired|revoked_before_action); exit 4 on timeout")
       .argument("<requestId>", "the protocol requestId (0x + 64 hex)")
       .option("--interval <ms>", "poll interval in ms (default 2000)")
       .option("--timeout <ms>", "total wait budget in ms (default 120000)"),
@@ -261,10 +261,10 @@ export async function run(
       .option("--customer <id>", "the subject reference")
       .option("--document-version <id>", "the signed document version the consent attests to")
       .option("--effective-date <date>", "when the consent took effect (YYYY-MM-DD)")
-      .option("--valid-until <date>", "the consent lifespan (YYYY-MM-DD)")
+      .option("--valid-until <date>", "the consent end (YYYY-MM-DD, through the end of that day in your company's timezone; at most 10 years)")
       .option(
         "--item <item>",
-        "a catalog id OR category:purpose (repeatable)",
+        "a consent ask ticked on the sheet: a catalog id OR category:purpose (repeatable; omit when every ask was answered no)",
         (val: string, prev: string[]) => [...prev, val],
         [] as string[],
       )
