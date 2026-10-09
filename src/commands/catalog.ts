@@ -27,7 +27,7 @@ export async function catalogCommand(ctx: Context, flags: { document?: string } 
     return;
   }
   if (scoped) {
-    emitLine(ctx, `${pc.bold(scoped.document.code)}  documentVersionId ${scoped.document.documentVersionId}  ${pc.dim(`regime ${JSON.stringify(scoped.regime)}`)}`);
+    emitLine(ctx, `${pc.bold(scoped.document.code)}  documentVersionId ${scoped.document.documentVersionId}  ${pc.dim(`regime ${scoped.regime.statute}`)}`);
   }
 
   if (entries.length === 0) {

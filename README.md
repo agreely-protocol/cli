@@ -65,10 +65,11 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | code | meaning |
 | --- | --- |
 | `0` | success / check **ALLOW** |
-| `2` | usage or validation error (bad/missing args, invalid input, no credentials), a `404`, or a `409` state conflict (envelope code `conflict`) |
+| `2` | usage or validation error (bad/missing args, invalid input, no credentials), a `404`, or a `409` state conflict (envelope code is the specific code, else `conflict`) |
 | `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
 | `4` | **unavailable** - an Agreely outage (distinct from a deny) |
-| `5` | rate-limited - the per-company window was exceeded |
+| `5` | rate-limited - the per-company per-minute window was exceeded (retry after the delay) |
+| `8` | **daily cap** (HTTP 429 `withdrawal_daily_cap`, `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`). Not a rate window: retrying today cannot succeed, so do not loop on it |
 | `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
 | `10` | check **DENY** - a clean, expected negative, **not** an error |
 | `1` | an unexpected/uncategorized failure |
@@ -79,13 +80,16 @@ outage the SDK throws and the CLI exits `4`, so a caller can tell "outage" from
 envelope code is `billing_inactive`) - also fail-closed, but distinct from an
 outage and actionable: the company must pay to restore service. A DENY's JSON
 still goes to stdout; a real error keeps stdout clean and writes a
-`{"error":{"code","message"}}` envelope to stderr.
+`{"error":{"code","message","reason"?,"field"?}}` envelope to stderr. Branch on
+`code` and `reason`, never on `message`. A `409` keeps its specific code
+(`identity_held`, `already_released`, `already_minted`, ...) and falls back to
+`conflict`.
 
 ## Commands
 
 ```sh
 agreely check <customerId> <category> <purpose> [--json]
-agreely catalog [--json]
+agreely catalog [--document <code>] [--json]   # --document: one published document's active cells and its documentVersionId
 agreely requests list [--customer <ref>] [--status pending|approved|asks_declined|refused|expired|revoked_before_action] [--limit <n>] [--cursor <id>] [--json]  # metadata only; bare `agreely requests ...` is a kept alias
 agreely request create [--customer <id> --to <email> (--document <versionId> | --document-code <code>) --valid-until <YYYY-MM-DD>] [--idempotency-key <k>] [--json]
 agreely request show <requestId> [--json]      # requestId is 0x + 64 hex
@@ -95,6 +99,13 @@ agreely manual-consent claim-link --customer <id> [--reference <ref>] [--json]
 agreely manual-consent revoke <consentRef> [--reason <text>] [--json]
 agreely relationship end <customerRef> --reason <text> [--json]      # end a customer relationship (art. 23; idempotent)
 agreely relationship revert <customerRef> --reason <text> [--json]   # undo a mistaken end (art. 11 / art. 28 correction)
+agreely verbal-consent record|show|paper ...    # a consent given by telephone (see below)
+agreely withdraw <customerRef> <consentRef> --channel <c> --operator <id> [--requested-at <t>] [--reason <text>] [--json]
+agreely customer get|set <customerRef> ...      # the customer registry
+agreely retention show|dispose <customerRef> ...
+agreely holds place|release|list|sync ...
+agreely consent-sheet create <customerRef> --document-version <id> --out <file.pdf> [--locale fr|en] [--json]
+agreely documents list|show <code>|pdf <documentVersionId> --out <file.pdf> [--json]
 agreely whoami [--json]                         # server-verified: reports the key's real scopes
 agreely login                                  # interactive: store a key in the OS keychain
 agreely config set --api-key <k> [--base-url <url>]   # non-interactive store (for scripts)
@@ -105,7 +116,7 @@ agreely config set --api-key <k> [--base-url <url>]   # non-interactive store (f
 ```sh
 agreely check cust-42 "Email Address" "Marketing Outreach" --json
 # {"decision":"allow","status":"active","consentRef":"0x…","assurance":"citizen_signed","tier":"full"}   exit 0
-# {"decision":"deny","status":"revoked","consentRef":"0x…","assurance":"company_attested","tier":"manual"}  exit 10
+# {"decision":"deny","status":"revoked","consentRef":"0x…","assurance":"company_attested","tier":"manual","validUntil":"…","revokedAt":"…"}  exit 10
 # {"decision":"allow","status":"necessity","basis":"necessary_for_service"}    exit 0
 ```
 
@@ -239,8 +250,110 @@ result's `gate` says what `check` answers now for that purpose: `denied` (this
 consent backed it), `superseded` (a later consent had already taken over and is
 untouched) or `unchanged` (an idempotent repeat).
 
-Recording a consent given by telephone (scope `attest_verbal`) is not in the CLI
-yet; it follows the `@agreely/sdk` 0.4.0 release.
+`manual-consent create` also takes `--sensitive-express-attested` and
+`--version-attested`, sent only when given.
+
+### `verbal-consent`
+
+A consent the person gave **by telephone**, documented by your organisation: the
+weakest tier (`tier: "verbal"`, `assurance: "company_documented"`). Recording needs
+the `attest_verbal` scope, the paper needs `attest`, `show` accepts either.
+
+```sh
+agreely verbal-consent record --customer cust-42 --document-version 4b08… \
+  --answer "Email Address:Marketing Outreach=yes" --answer "Phone:Surveys=no" \
+  --obtained-at 2026-10-09T10:15:00-04:00 --obtained-by agent-7 --script-version v3 \
+  --consented-by self --valid-until 2027-10-09 --paper-expected --json
+# -> {"consentId":"…","tier":"verbal","assurance":"company_documented","consentRefs":["0x…"],"acknowledged":[…],"asksDeclined":false,…}
+
+agreely verbal-consent show <consentId> --json     # what was said, what the paper said, what is in force
+agreely verbal-consent paper <consentId> --signed-at 2026-10-12T09:00:00-04:00 \
+  --answer "Email Address:Marketing Outreach=yes" --pdf ./signed.pdf --json
+```
+
+Every `--answer` is the person's own explicit `yes` or `no`, as
+`category:purpose=yes|no`. Withdraw a verbal consent with `manual-consent revoke`
+or `withdraw`. `--obtained-at` is at most 7 days old and never in the future.
+`--consented-by representative` takes `--capacity`, and a minor under 14 takes
+`--minor` with `--respondent-name`. The paper's PDF is hashed locally exactly as for
+`manual-consent create`.
+
+### `withdraw`
+
+Record a withdrawal the person asked for, on her behalf (scope `withdraw`, never on
+a key by default). `--channel` is `phone`, `email`, `mail`, `in_person` or `other`;
+`--operator` is your opaque id of the staff member, never an email.
+
+```sh
+agreely withdraw cust-42 0x… --channel phone --operator agent-7 --reason "asked by phone" --json
+# -> {"consentRef":"0x…","withdrawn":true,"alreadyWithdrawn":false,"recordedOnBehalf":true,"assurance":"company_attested","gate":"denied","alsoWithdrawn":[]}
+```
+
+Read `gate` before telling anyone the use stopped. The daily cap (50 per 24 hours)
+exits `8`: record further withdrawals from the customer page in Agreely.
+
+### `customer`
+
+```sh
+agreely customer get cust-42 --json     # metadata only: booleans, never the name or email
+agreely customer set cust-42 --display-name "Ada Lovelace" --email ada@example.com --notice-locale fr
+agreely customer set cust-42 --email ""  # a merge: an absent flag is untouched, an empty value clears it
+```
+
+`409 identity_held` or `identity_erased` means the identity cannot be changed now.
+
+### `retention` and `holds`
+
+```sh
+agreely retention show cust-42 --json
+agreely retention dispose cust-42 --disposition legal_hold --reason "Act X s. 12" --retention-until 2031-01-01
+agreely holds place cust-42 --ground other_law --provision "Act X s. 12" --rule r1 --cell <catalogId>
+agreely holds place cust-42 --ground rights_request          # no --rule/--cell: covers everything
+agreely holds release cust-42 <holdId> --reason "request closed"
+agreely holds list [--changed-since <cursor>] [--page-token <t>]   # ONE page
+agreely holds sync [--changed-since <cursor>]                      # EVERY page
+```
+
+`dispose` needs the relationship to have ended (`409 relationship_active`); the
+result says what happened to Agreely's copy of the identity (`agreelyIdentity`) and
+warns with `hold_active` when a hold stands. An `other_law` hold requires
+`--provision`; a `rights_request` hold refuses one. `holds list` and `holds sync`
+need the `holds` scope. The feed pages with `pageToken`/`nextPageToken`, and only the
+last page carries `cursor`. `holds sync` walks every page and prints
+`cursor to keep` (in `--json`: `{"mode","holds","cursor"}`): persist it and pass it
+as the next `--changed-since`. Without `--changed-since` the result is a snapshot of
+every active hold (replace your whole set); with it, a delta (upsert by `id`).
+Delivery is at least once.
+
+### `consent-sheet`
+
+```sh
+agreely consent-sheet create cust-42 --document-version 4b08… --out ./sheet-cust-42.pdf
+```
+
+Mints the signature sheet of one published version for one customer (scope `attest`)
+with a **new** claim. The PDF is written to `--out` (never stdout; an existing file is
+refused before minting unless `--force`). The printed reference and the claim link
+are returned **once** and stored nowhere, so the command prints them and nothing
+can recover them later. A replayed `--idempotency-key` is a `409 already_minted`.
+
+- Never send the claim link in the same envelope as the sheet: the printed
+  reference is its second factor.
+- Never send the blank sheet's hash as `evidence.pdfSha256`: the evidence is the
+  signed paper once it comes back.
+
+### `documents`
+
+```sh
+agreely documents list --json
+agreely documents show <code> --json                 # the full published disclosure
+agreely documents pdf <documentVersionId> --out ./info.pdf --locale en
+```
+
+Read-only discovery of the published consent documents. Pin the stable `code`, not
+the version id, which changes on every publication. `pdf` writes the information
+document to a file; fetching it records nothing and is not evidence that anyone was
+informed.
 
 ### `relationship`
 

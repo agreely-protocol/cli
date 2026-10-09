@@ -3,10 +3,47 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.4.0 - 2026-10-09
 
-Brought in line with the production /v1 API. Still builds against `@agreely/sdk`
-`^0.3.0`: the new wire fields are read structurally, not through 0.4.0 types.
+Covers the /v1 API through `@agreely/sdk` `^0.5.0` (a new minimum: `^0.3.0` does not
+have these resources). Everything from the former Unreleased section ships here.
+
+### Added
+
+- **`verbal-consent record | show | paper`**: a consent given by telephone and the
+  signed paper that raises it to a manual consent.
+- **`withdraw <customerRef> <consentRef>`**: a withdrawal recorded on the person's
+  behalf (`--channel`, `--operator`, optional `--requested-at`, `--reason`).
+- **`customer get | set`**: the customer registry (a merge; an empty value clears).
+- **`retention show | dispose`**: a customer's retention clock and the disposition
+  declaration, with `agreelyIdentity` and the `hold_active` warning.
+- **`holds place | release | list | sync`**: retention holds and the holds feed.
+  `sync` walks every page and prints the cursor to keep.
+- **`consent-sheet create`**: the signature sheet to a file, the printed reference and
+  the claim link printed once, with the two rules (never the claim link in the same
+  envelope as the sheet; never the blank sheet's hash as evidence).
+- **`documents list | show | pdf`** and **`catalog --document <code>`**.
+- `check` shows `validUntil` and `revokedAt` when present (human and `--json`).
+- `manual-consent create --sensitive-express-attested --version-attested`.
+- Every error envelope carries `reason` and `field` when the server sent them, and
+  the human output prints `code`, `reason` and `field`.
+- **Exit code `8`** for a per-company daily cap (429 `withdrawal_daily_cap`,
+  `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`). It used
+  to fall in `5` with the per-minute window; a daily cap cannot succeed on retry.
+
+### Changed
+
+- A `409` now reports its specific envelope code (`identity_held`,
+  `already_released`, `already_minted`, ...) and `conflict` only as a fallback. The
+  exit code is unchanged (`2`).
+- Requires `@agreely/sdk` `^0.5.0`.
+- `requests list --status` accepts `asks_declined`. `approved` no longer includes
+  a request whose every ask was declined.
+- README: removed `sensitive_requires_consent` (no longer emitted since
+  2026-09-28: a sensitive cell answers by its declared basis), documented `tier`,
+  `assurance`, informed lines, the full deny status list, the meaning of
+  `--valid-until`, the manual-consent and claim-link `404`/`409` cases, and every
+  new command.
 
 ### Fixed
 
@@ -28,17 +65,6 @@ Brought in line with the production /v1 API. Still builds against `@agreely/sdk`
   refuses both.
 - `manual-consent revoke` shows the new `gate` (`denied`, `superseded` or
   `unchanged`) in human mode; `--json` already passed it through.
-
-### Changed
-
-- `requests list --status` accepts `asks_declined`. `approved` no longer includes
-  a request whose every ask was declined.
-- README: removed `sensitive_requires_consent` (no longer emitted since
-  2026-09-28: a sensitive cell answers by its declared basis), documented `tier`,
-  `assurance`, informed lines, the full deny status list, the meaning of
-  `--valid-until` (end of that day in the company's timezone, 10-year ceiling, no
-  relative phrases), the manual-consent and claim-link `404`/`409` cases, and noted
-  that verbal-consent commands follow the SDK 0.4.0 release.
 
 ## 0.3.1 - 2026-08-22
 
