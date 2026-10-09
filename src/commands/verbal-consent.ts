@@ -10,8 +10,10 @@
 //   paper  <consentId> --signed-at <instant> --answer ... --pdf <path> [--upload]
 //
 // Scopes: record needs attest_verbal, paper needs attest, show accepts either. Each
-// answer is the person's own "yes" or "no", given explicitly. Dates and instants are
-// passed through to the SDK, which validates them (RFC 3339 WITH an offset).
+// answer is the person's own "yes" or "no", given explicitly. Instants are RFC 3339 WITH
+// an offset and --valid-until is a plain date or such an instant, all checked before any
+// call. A category that itself contains ":" cannot be written as --answer. An
+// Idempotency-Key is generated when none is given and printed if the call times out.
 
 import type {
   ConfirmVerbalPaperInput,
@@ -20,30 +22,45 @@ import type {
   VerbalConsentHistory,
   VerbalConsentResult,
   VerbalPaperResult,
+  RepresentativeCapacity,
   VerbalRespondent,
 } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
 import { readEvidence } from "../evidence.js";
-import { need, oneOf, opt } from "../flags.js";
+import {
+  assertDateOrInstant,
+  assertInstant,
+  keyOrNew,
+  need,
+  oneOf,
+  opt,
+  splitPair,
+} from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const CONSENTED_BY = ["self", "self_with_assistant", "representative"] as const;
+const CAPACITIES = [
+  "tutelle",
+  "mandat_protection_homologue",
+  "representation_temporaire",
+  "curatelle",
+  "other",
+  "undeclared",
+  "titulaire_autorite_parentale",
+  "tuteur_mineur",
+] as const satisfies readonly RepresentativeCapacity[];
 
-/** Parse one --answer "category:purpose=yes|no" (category/purpose split on the first colon, answer on the last "="). */
+/** Parse one --answer "category:purpose=yes|no" (the answer after the last "=", then the shared category:purpose split). */
 export function parseAnswer(raw: string): VerbalAnswer {
   const eq = raw.lastIndexOf("=");
-  const colon = raw.indexOf(":");
-  if (eq === -1 || colon === -1 || colon > eq) {
+  const pair = eq === -1 ? undefined : splitPair(raw.slice(0, eq));
+  if (eq === -1 || pair === undefined) {
     throw new UsageError(`Invalid --answer "${raw}". Use "category:purpose=yes" or "category:purpose=no".`);
   }
-  const category = raw.slice(0, colon).trim();
-  const purpose = raw.slice(colon + 1, eq).trim();
+  const { category, purpose } = pair;
   const answer = raw.slice(eq + 1).trim().toLowerCase();
-  if (category === "" || purpose === "") {
-    throw new UsageError(`Invalid --answer "${raw}". Use "category:purpose=yes" or "category:purpose=no".`);
-  }
   if (answer !== "yes" && answer !== "no") {
     throw new UsageError(`Invalid --answer "${raw}": the answer must be exactly yes or no.`);
   }
@@ -70,23 +87,30 @@ export interface VerbalRecordFlags {
 export async function verbalConsentRecordCommand(ctx: Context, flags: VerbalRecordFlags): Promise<void> {
   const customerId = need(flags.customer, "--customer <id>");
   const documentVersionId = need(flags.documentVersion, "--document-version <id>");
-  const obtainedAt = need(flags.obtainedAt, "--obtained-at <instant>");
+  const obtainedAt = assertInstant(need(flags.obtainedAt, "--obtained-at <instant>"), "--obtained-at");
   const obtainedBy = need(flags.obtainedBy, "--obtained-by <staff>");
   const scriptVersion = need(flags.scriptVersion, "--script-version <label>");
-  const validUntil = need(flags.validUntil, "--valid-until <date|instant>");
+  const validUntil = assertDateOrInstant(need(flags.validUntil, "--valid-until <date|instant>"), "--valid-until");
   const consentedBy = oneOf(need(flags.consentedBy, "--consented-by"), CONSENTED_BY, "--consented-by");
   const answers = (flags.answer ?? []).map(parseAnswer);
   if (answers.length === 0) {
     throw new UsageError('At least one --answer "category:purpose=yes|no" is required.');
   }
 
-  const capacity = opt(flags.capacity);
+  const capacityFlag = opt(flags.capacity);
+  const capacity = capacityFlag !== undefined ? oneOf(capacityFlag, CAPACITIES, "--capacity") : undefined;
+  if (consentedBy === "representative" && capacity === undefined) {
+    throw new UsageError("--capacity is required when --consented-by is representative.");
+  }
+  if (consentedBy !== "representative" && capacity !== undefined) {
+    throw new UsageError("--capacity applies to a representative only.");
+  }
   const name = opt(flags.respondentName);
-  const respondent = {
+  const respondent: VerbalRespondent = {
     consentedBy,
     ...(capacity !== undefined ? { representativeCapacity: capacity } : {}),
     ...(name !== undefined ? { name } : {}),
-  } as VerbalRespondent;
+  };
 
   const input: RecordVerbalConsentInput = {
     customerId,
@@ -101,13 +125,11 @@ export async function verbalConsentRecordCommand(ctx: Context, flags: VerbalReco
     ...(flags.minor ? { isMinor: true } : {}),
     ...(flags.paperExpected ? { paperExpected: true } : {}),
   };
-  const key = opt(flags.idempotencyKey);
+  const key = keyOrNew(flags.idempotencyKey);
+  ctx.retryKey = key;
 
-  const { client } = await buildClient(ctx);
-  const recorded: VerbalConsentResult = await client.verbalConsents.record(
-    input,
-    key !== undefined ? { idempotencyKey: key } : {},
-  );
+  const { client } = await buildClient(ctx, { write: true });
+  const recorded: VerbalConsentResult = await client.verbalConsents.record(input, { idempotencyKey: key });
 
   if (ctx.agent) {
     emitJson(ctx, recorded);
@@ -169,21 +191,18 @@ export async function verbalConsentPaperCommand(
   flags: VerbalPaperFlags,
 ): Promise<void> {
   const id = need(consentId, "<consentId>");
-  const signedAt = need(flags.signedAt, "--signed-at <instant>");
+  const signedAt = assertInstant(need(flags.signedAt, "--signed-at <instant>"), "--signed-at");
   const answers = (flags.answer ?? []).map(parseAnswer);
   if (answers.length === 0) {
     throw new UsageError('At least one --answer "category:purpose=yes|no" is required (each purpose still consented by telephone).');
   }
   const evidence = await readEvidence(flags.pdf, flags.upload === true);
   const input: ConfirmVerbalPaperInput = { signedAt, answers, evidence };
-  const key = opt(flags.idempotencyKey);
+  const key = keyOrNew(flags.idempotencyKey);
+  ctx.retryKey = key;
 
-  const { client } = await buildClient(ctx);
-  const result: VerbalPaperResult = await client.verbalConsents.confirmWithPaper(
-    id,
-    input,
-    key !== undefined ? { idempotencyKey: key } : {},
-  );
+  const { client } = await buildClient(ctx, { write: true });
+  const result: VerbalPaperResult = await client.verbalConsents.confirmWithPaper(id, input, { idempotencyKey: key });
 
   if (ctx.agent) {
     emitJson(ctx, result);

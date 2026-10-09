@@ -10,9 +10,11 @@ import {
   AgreelyConflictError,
   AgreelyDailyCapError,
   AgreelyRateLimitError,
+  AgreelyTimeoutError,
   AgreelyValidationError,
 } from "@agreely/sdk";
 import type * as AgreelySdk from "@agreely/sdk";
+import type * as FlagsModule from "../../src/flags.js";
 import { run } from "../../src/cli.js";
 import { EXIT } from "../../src/errors.js";
 import { argv, makeIo } from "./harness.js";
@@ -38,6 +40,8 @@ const h = vi.hoisted(() => ({
   mRecord: vi.fn(),
   catList: vi.fn(),
   catDoc: vi.fn(),
+  ctor: vi.fn(),
+  failWrite: { on: false },
 }));
 
 vi.mock("@agreely/sdk", async (importOriginal) => {
@@ -58,8 +62,28 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
     consentDocuments = { list: h.docList, get: h.docGet, getInformationPdf: h.docPdf };
     catalog = { list: h.catList, forDocument: h.catDoc };
     checkDetailed = h.checkDetailed;
+    constructor(opts: unknown) {
+      h.ctor(opts);
+    }
   }
   return { ...actual, Agreely: FakeAgreely };
+});
+
+// A post-mint write failure cannot be provoked on a real file, so the handle's write is broken on demand.
+vi.mock("../../src/flags.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof FlagsModule>();
+  return {
+    ...actual,
+    openOutput: async (...a: Parameters<typeof actual.openOutput>) => {
+      const out = await actual.openOutput(...a);
+      if (h.failWrite.on) {
+        out.handle.writeFile = async () => {
+          throw new Error("disk full");
+        };
+      }
+      return out;
+    },
+  };
 });
 
 vi.mock("@clack/prompts", () => {
@@ -75,7 +99,8 @@ const UUID = "11111111-2222-3333-4444-555555555555";
 const tmp = mkdtempSync(join(tmpdir(), "agreely-cli-v1-"));
 
 beforeEach(() => {
-  for (const fn of Object.values(h)) fn.mockReset();
+  for (const fn of Object.values(h)) if (typeof fn === "function") fn.mockReset();
+  h.failWrite.on = false;
 });
 
 async function json(...args: string[]): Promise<{ code: number; out: unknown; err: string }> {
@@ -98,14 +123,19 @@ describe("verbal-consent", () => {
     const r = await json(...base, "--paper-expected", "--idempotency-key", "k1");
     expect(r.code).toBe(EXIT.OK);
     const [input, opts] = h.vRecord.mock.calls[0] as [Record<string, unknown>, unknown];
-    expect(input).toMatchObject({
+    // Statutory fields: assert the WHOLE input so a swapped pair cannot pass.
+    expect(input).toEqual({
       customerId: "c1",
       documentVersionId: UUID,
       answers: [
         { category: "Cat A", purpose: "Purpose 1", answer: "yes" },
         { category: "Cat B", purpose: "Purpose 2", answer: "no" },
       ],
+      obtainedAt: "2026-10-09T10:00:00-04:00",
+      obtainedBy: "agent-7",
+      scriptVersion: "v1",
       respondent: { consentedBy: "self" },
+      validUntil: "2027-10-09",
       paperExpected: true,
     });
     expect(opts).toEqual({ idempotencyKey: "k1" });
@@ -205,7 +235,7 @@ describe("customer", () => {
   it("set merges: only the passed flags are sent, empty clears", async () => {
     h.custUpsert.mockResolvedValue({ customerRef: "c1", created: true });
     await json("customer", "set", "c1", "--display-name", "Ada", "--email", "");
-    expect(h.custUpsert).toHaveBeenCalledWith("c1", { displayName: "Ada", email: "" });
+    expect(h.custUpsert).toHaveBeenCalledWith("c1", { displayName: "Ada", email: null });
   });
 
   it("set with nothing to set is a usage error", async () => {
@@ -237,13 +267,13 @@ describe("holds", () => {
   it("place defaults to scope all, and other_law requires a provision", async () => {
     h.holdPlace.mockResolvedValue({ id: UUID });
     await json("holds", "place", "c1", "--ground", "rights_request");
-    expect(h.holdPlace).toHaveBeenCalledWith("c1", { scope: "all", ground: "rights_request" }, {});
+    expect(h.holdPlace).toHaveBeenCalledWith("c1", { scope: "all", ground: "rights_request" }, { idempotencyKey: expect.any(String) });
     expect((await json("holds", "place", "c1", "--ground", "other_law")).code).toBe(EXIT.USAGE);
     await json("holds", "place", "c1", "--ground", "other_law", "--provision", "Tax Act s. 1", "--rule", "r1", "--cell", "c9");
     expect(h.holdPlace).toHaveBeenLastCalledWith(
       "c1",
       { scope: { rules: ["r1"], cells: ["c9"] }, ground: "other_law", provision: "Tax Act s. 1" },
-      {},
+      { idempotencyKey: expect.any(String) },
     );
   });
 
@@ -251,7 +281,7 @@ describe("holds", () => {
     expect((await json("holds", "release", "c1", UUID)).code).toBe(EXIT.USAGE);
     h.holdRelease.mockResolvedValue({ id: UUID, placedBy: "api", agreelyIdentity: "none_held" });
     expect((await json("holds", "release", "c1", UUID, "--reason", "done")).code).toBe(EXIT.OK);
-    expect(h.holdRelease).toHaveBeenCalledWith("c1", UUID, { reason: "done" }, {});
+    expect(h.holdRelease).toHaveBeenCalledWith("c1", UUID, { reason: "done" }, { idempotencyKey: expect.any(String) });
   });
 
   it("list reads one page with the page token", async () => {
@@ -376,15 +406,165 @@ describe("manual-consent create attestations", () => {
 
 describe("catalog --document", () => {
   it("scopes to one document and prints the version id", async () => {
-    h.catDoc.mockResolvedValue({ regime: "P-39.1", document: { code: "D1", documentVersionId: UUID }, catalog: [{ id: "x" }] });
+    const regime = { sector: "private", statute: "P-39.1" };
+    h.catDoc.mockResolvedValue({ regime, document: { code: "D1", documentVersionId: UUID }, catalog: [{ id: "x", category: "C", purpose: "P" }] });
     const r = await json("catalog", "--document", "D1");
     expect(h.catDoc).toHaveBeenCalledWith("D1");
-    expect(r.out).toEqual({ regime: "P-39.1", document: { code: "D1", documentVersionId: UUID }, catalog: [{ id: "x" }] });
+    expect(r.out).toEqual({ regime, document: { code: "D1", documentVersionId: UUID }, catalog: [{ id: "x", category: "C", purpose: "P" }] });
+    const io = makeIo({ env: ENV, isTTY: true });
+    await run(argv("catalog", "--document", "D1"), io.io);
+    expect(io.out()).toContain(`D1  documentVersionId ${UUID}`);
+    expect(io.out()).toContain("regime P-39.1");
   });
 
   it("without the flag lists the whole catalog", async () => {
     h.catList.mockResolvedValue([]);
     expect((await json("catalog")).out).toEqual({ catalog: [] });
     expect(h.catDoc).not.toHaveBeenCalled();
+  });
+});
+
+describe("consent-sheet: the output file is opened BEFORE the mint", () => {
+  const sheet = {
+    signatureSheet: { documentVersionId: UUID, locale: "fr", contentType: "application/pdf", filename: "s.pdf", pdf: Buffer.from("%PDF-1.4 x").toString("base64") },
+    printedReference: "ABCD-EFGH",
+    claim: { claimUrl: "https://x/claim/t", token: "tok", expiresAt: "2026-11-01T00:00:00Z" },
+  };
+  const create = (out: string, ...more: string[]) => ["consent-sheet", "create", "c1", "--document-version", UUID, "--out", out, ...more];
+
+  it("a missing parent directory never reaches the SDK", async () => {
+    expect((await json(...create(join(tmp, "nope", "s.pdf")))).code).toBe(EXIT.USAGE);
+    expect(h.sheet).not.toHaveBeenCalled();
+  });
+
+  it("a directory path never reaches the SDK, even with --force", async () => {
+    expect((await json(...create(tmp, "--force"))).code).toBe(EXIT.USAGE);
+    expect(h.sheet).not.toHaveBeenCalled();
+  });
+
+  it("a non-regular file such as /dev/stdout is refused before minting", async () => {
+    expect((await json(...create("/dev/stdout", "--force"))).code).toBe(EXIT.USAGE);
+    expect(h.sheet).not.toHaveBeenCalled();
+  });
+
+  it("a failed mint removes the empty file it created", async () => {
+    h.sheet.mockRejectedValue(new AgreelyConflictError("minted", { code: "already_minted", status: 409 }));
+    const out = join(tmp, "gone.pdf");
+    await json(...create(out));
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("a write failure AFTER the mint still prints the reference and claim, exit 9", async () => {
+    h.sheet.mockResolvedValue(sheet);
+    h.failWrite.on = true;
+    const r = await json(...create(join(tmp, "lost.pdf")));
+    expect(r.code).toBe(EXIT.PARTIAL);
+    expect(r.out).toMatchObject({ file: null, writeError: "disk full", printedReference: "ABCD-EFGH", claim: sheet.claim });
+    const io = makeIo({ env: ENV, isTTY: true });
+    expect(await run(argv(...create(join(tmp, "lost2.pdf"))), io.io)).toBe(EXIT.PARTIAL);
+    expect(io.out()).toContain("ABCD-EFGH");
+    expect(io.out()).toContain("https://x/claim/t");
+    expect(io.err()).toContain("Do NOT retry");
+  });
+});
+
+describe("documents pdf opens its file first", () => {
+  it("a missing directory never reaches the SDK", async () => {
+    expect((await json("documents", "pdf", UUID, "--out", join(tmp, "nope", "d.pdf"))).code).toBe(EXIT.USAGE);
+    expect(h.docPdf).not.toHaveBeenCalled();
+  });
+});
+
+describe("writes: timeout, retry key, no global flags in the request", () => {
+  it("a write client gets a 15 s budget, a read client keeps the default", async () => {
+    h.withdraw.mockResolvedValue({ gate: "denied", alsoWithdrawn: [] });
+    await json("withdraw", "c1", CONSENT, "--channel", "phone", "--operator", "o");
+    expect(h.ctor.mock.calls[0]?.[0]).toMatchObject({ timeout: 15000 });
+    h.ctor.mockReset();
+    h.custGet.mockResolvedValue({ customerRef: "c1" });
+    await json("customer", "get", "c1");
+    expect(h.ctor.mock.calls[0]?.[0]).not.toHaveProperty("timeout");
+  });
+
+  it("a timeout prints the generated key so the retry reuses it", async () => {
+    h.holdPlace.mockRejectedValue(new AgreelyTimeoutError("timed out", {}));
+    const r = await json("holds", "place", "c1", "--ground", "rights_request");
+    expect(r.code).toBe(EXIT.UNAVAILABLE);
+    const sent = (h.holdPlace.mock.calls[0] as [string, unknown, { idempotencyKey: string }])[2].idempotencyKey;
+    expect(sent).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.parse(r.err.trim()).error.idempotencyKey).toBe(sent);
+  });
+
+  it("a user-given key is the one sent and printed", async () => {
+    h.holdPlace.mockRejectedValue(new AgreelyTimeoutError("timed out", {}));
+    const r = await json("holds", "place", "c1", "--ground", "rights_request", "--idempotency-key", "mine");
+    expect(JSON.parse(r.err.trim()).error.idempotencyKey).toBe("mine");
+  });
+
+  it("manual-consent create takes --idempotency-key", async () => {
+    h.mRecord.mockResolvedValue({ consentId: UUID, merkleRoot: "0x1", assurance: "company_attested", anchored: false, consentRefs: [], acknowledged: [], asksDeclined: false });
+    const pdf = join(tmp, "k.pdf");
+    writeFileSync(pdf, "%PDF-1.4 k");
+    await json("manual-consent", "create", "--customer", "c", "--document-version", UUID, "--effective-date", "2026-10-01", "--valid-until", "2027-10-01", "--pdf", pdf, "--idempotency-key", "mk");
+    expect(h.mRecord.mock.calls[0]?.[1]).toEqual({ idempotencyKey: "mk" });
+  });
+
+  it("--api-key never reaches a request input", async () => {
+    h.custUpsert.mockResolvedValue({ customerRef: "c1", created: false });
+    await json("customer", "set", "c1", "--email", "a@b.co", "--api-key", "ak_secret_key_9999");
+    expect(JSON.stringify(h.custUpsert.mock.calls)).not.toContain("ak_secret");
+  });
+});
+
+describe("input validation shared across commands", () => {
+  const rec = [
+    "verbal-consent", "record", "--customer", "c1", "--document-version", UUID, "--answer", "A:B=yes",
+    "--obtained-at", "2026-10-09T10:00:00-04:00", "--obtained-by", "a", "--script-version", "v1",
+    "--consented-by", "self", "--valid-until", "2027-10-09",
+  ];
+  const swap = (flag: string, value: string) => rec.map((a, i) => (rec[i - 1] === flag ? value : a));
+
+  it("refuses an obtained-at without an offset and a valid-until phrase", async () => {
+    expect((await json(...swap("--obtained-at", "2026-10-09T10:00:00"))).code).toBe(EXIT.USAGE);
+    expect((await json(...swap("--valid-until", "next year"))).code).toBe(EXIT.USAGE);
+    expect(h.vRecord).not.toHaveBeenCalled();
+  });
+
+  it("validates --capacity against its list and ties it to a representative", async () => {
+    expect((await json(...rec, "--capacity", "tutelle")).code).toBe(EXIT.USAGE);
+    expect((await json(...swap("--consented-by", "representative"))).code).toBe(EXIT.USAGE);
+    expect((await json(...swap("--consented-by", "representative"), "--capacity", "wizard")).code).toBe(EXIT.USAGE);
+    h.vRecord.mockResolvedValue({ consentId: UUID, tier: "verbal", assurance: "company_documented", consentRefs: [], acknowledged: [], asksDeclined: false });
+    expect((await json(...swap("--consented-by", "representative"), "--capacity", "tutelle")).code).toBe(EXIT.OK);
+  });
+
+  it("an answer splits on the first colon only", async () => {
+    h.vRecord.mockResolvedValue({ consentId: UUID, tier: "verbal", assurance: "company_documented", consentRefs: [], acknowledged: [], asksDeclined: false });
+    await json(...swap("--answer", " Cat : Purpose: two =no"));
+    expect((h.vRecord.mock.calls[0] as [{ answers: unknown }])[0].answers).toEqual([{ category: "Cat", purpose: "Purpose: two", answer: "no" }]);
+  });
+
+  it("withdraw accepts 64 hex with or without 0x, and refuses anything else", async () => {
+    h.withdraw.mockResolvedValue({ gate: "denied", alsoWithdrawn: [] });
+    const hex = "b".repeat(64);
+    expect((await json("withdraw", "c1", hex, "--channel", "mail", "--operator", "o")).code).toBe(EXIT.OK);
+    expect((await json("withdraw", "c1", "0xabc", "--channel", "mail", "--operator", "o")).code).toBe(EXIT.USAGE);
+    expect(h.withdraw).toHaveBeenCalledTimes(1);
+    expect((await json("withdraw", "c1", hex, "--channel", "mail", "--operator", "o", "--requested-at", "yesterday")).code).toBe(EXIT.USAGE);
+  });
+
+  it("customer set: one clearing rule, trimmed, legal basis and locale checked", async () => {
+    h.custUpsert.mockResolvedValue({ customerRef: "c1", created: false });
+    await json("customer", "set", "c1", "--display-name", " Ada ", "--basis-note", "", "--legal-basis", "", "--notice-locale", "en");
+    expect(h.custUpsert).toHaveBeenCalledWith("c1", { displayName: "Ada", basisNote: null, legalBasis: null, noticeLocale: "en" });
+    expect((await json("customer", "set", "c1", "--legal-basis", "consent")).code).toBe(EXIT.USAGE);
+    expect((await json("customer", "set", "c1", "--notice-locale", "de")).code).toBe(EXIT.USAGE);
+  });
+
+  it("holds sync forwards --max-pages and refuses a bad one", async () => {
+    h.holdSync.mockResolvedValue({ mode: "snapshot", holds: [], cursor: "c" });
+    await json("holds", "sync", "--max-pages", "5");
+    expect(h.holdSync).toHaveBeenCalledWith({ maxPages: 5 });
+    expect((await json("holds", "sync", "--max-pages", "0")).code).toBe(EXIT.USAGE);
   });
 });

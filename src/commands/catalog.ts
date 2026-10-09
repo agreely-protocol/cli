@@ -1,4 +1,4 @@
-// agreely catalog [--document <code>] [--json] — read-only discovery of the company's declared
+// agreely catalog [--document <code>] [--json]: read-only discovery of the company's declared
 // active (category, purpose) entries, for composing issuance. With --document, only
 // the active cells of ONE published document, with the regime and the version id
 // published today (an intake form and the version to record against, in one call).
@@ -36,7 +36,7 @@ export async function catalogCommand(ctx: Context, flags: { document?: string } 
   }
   emitLine(ctx, pc.bold(`Catalog (${entries.length})`));
   for (const e of entries) {
-    const desc = e.description ? pc.dim(` — ${e.description}`) : "";
+    const desc = e.description ? pc.dim(`, ${e.description}`) : "";
     emitLine(ctx, `  ${pc.cyan(e.category)} / ${e.purpose}${desc}`);
     emitLine(ctx, `    ${pc.dim(e.id)}`);
   }

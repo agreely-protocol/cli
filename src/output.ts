@@ -1,5 +1,5 @@
 // Output helpers. The hard rule: in agent mode, stdout carries PURE JSON and
-// nothing else — every log, hint, and error goes to stderr. picocolors disables
+// nothing else: every log, hint, and error goes to stderr. picocolors disables
 // itself on a non-TTY, so human formatting degrades cleanly when redirected.
 
 import pc from "picocolors";
@@ -16,7 +16,7 @@ export function emitLine(ctx: Context, line: string): void {
   ctx.io.stdout.write(line + "\n");
 }
 
-/** A diagnostic/hint to stderr — never pollutes the JSON on stdout. */
+/** A diagnostic/hint to stderr, never pollutes the JSON on stdout. */
 export function note(ctx: Context, line: string): void {
   ctx.io.stderr.write(line + "\n");
 }
@@ -29,16 +29,21 @@ export function reportError(ctx: Context, err: unknown): void {
   const code = errorCodeFor(err);
   const message = messageFor(err);
   const { reason, field } = detailFor(err);
+  // A timeout or outage on a write may or may not have landed: say which key to retry with.
+  const retry = ctx.retryKey !== undefined && exitCodeForError(err) === EXIT.UNAVAILABLE ? { idempotencyKey: ctx.retryKey } : {};
   if (ctx.agent) {
     ctx.io.stderr.write(
       JSON.stringify({
-        error: { code, message, ...(reason !== undefined ? { reason } : {}), ...(field !== undefined ? { field } : {}) },
+        error: { code, message, ...(reason !== undefined ? { reason } : {}), ...(field !== undefined ? { field } : {}), ...retry },
       }) + "\n",
     );
   } else {
     ctx.io.stderr.write(`${pc.red("✗")} ${pc.red(message)}\n`);
     const parts = [`code ${code}`, ...(reason !== undefined ? [`reason ${reason}`] : []), ...(field !== undefined ? [`field ${field}`] : [])];
     ctx.io.stderr.write(pc.dim(`  ${parts.join(", ")}`) + "\n");
+    if ("idempotencyKey" in retry) {
+      ctx.io.stderr.write(pc.dim(`  The write may or may not have landed. Retry with the SAME key: --idempotency-key ${ctx.retryKey}`) + "\n");
+    }
     if (exitCodeForError(err) === EXIT.DAILY_CAP) {
       ctx.io.stderr.write(pc.dim("  A daily cap: retrying today cannot succeed. Do not loop on it.") + "\n");
     }

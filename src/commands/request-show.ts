@@ -27,7 +27,7 @@ export async function requestShowCommand(ctx: Context, requestId: string): Promi
   emitLine(ctx, `  validUntil  ${record.validUntil}`);
   emitLine(ctx, `  expiresAt   ${record.expiresAt}`);
   emitLine(ctx, `  createdAt   ${record.createdAt}`);
-  emitLine(ctx, `  settledAt   ${record.settledAt ?? pc.dim("—")}`);
+  emitLine(ctx, `  settledAt   ${record.settledAt ?? pc.dim("none")}`);
   for (const it of record.items) {
     emitLine(ctx, `    · ${pc.cyan(it.category)} / ${it.purpose}`);
   }

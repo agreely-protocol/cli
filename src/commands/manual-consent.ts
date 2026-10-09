@@ -32,10 +32,10 @@ import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { parseItem } from "../create-input.js";
 import { readEvidence } from "../evidence.js";
+import { assertDate, keyOrNew } from "../flags.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CONSENT_REF_RE = /^0x[0-9a-f]+$/i;
 
 export interface ManualConsentCreateFlags {
@@ -48,16 +48,19 @@ export interface ManualConsentCreateFlags {
   upload?: boolean;
   sensitiveExpressAttested?: boolean;
   versionAttested?: boolean;
+  idempotencyKey?: string;
 }
 
 export async function manualConsentCreateCommand(
   ctx: Context,
   flags: ManualConsentCreateFlags,
 ): Promise<void> {
-  const { client } = await buildClient(ctx);
+  const key = keyOrNew(flags.idempotencyKey);
+  ctx.retryKey = key;
+  const { client } = await buildClient(ctx, { write: true });
   const input = await buildRecordInput(flags);
 
-  const recorded: ManualConsentResult = await client.manualConsents.record(input);
+  const recorded: ManualConsentResult = await client.manualConsents.record(input, { idempotencyKey: key });
 
   if (ctx.agent) {
     emitJson(ctx, recorded);
@@ -72,16 +75,13 @@ export async function manualConsentCreateCommand(
   for (const ref of recorded.consentRefs) {
     emitLine(ctx, `    · ${pc.cyan(ref)}`);
   }
-  // Read structurally: `acknowledged` and `asksDeclined` are typed only from
-  // @agreely/sdk 0.4.0 onward, and this CLI still builds against 0.3.0.
-  const extra = recorded as { acknowledged?: unknown; asksDeclined?: unknown };
-  if (Array.isArray(extra.acknowledged) && extra.acknowledged.length > 0) {
+  if (recorded.acknowledged.length > 0) {
     emitLine(ctx, `  ${pc.bold("acknowledged")} ${pc.dim("(information given, never a consent)")}`);
-    for (const line of extra.acknowledged as { category?: unknown; purpose?: unknown }[]) {
+    for (const line of recorded.acknowledged) {
       emitLine(ctx, `    · ${String(line.category)} / ${String(line.purpose)}`);
     }
   }
-  if (extra.asksDeclined === true) {
+  if (recorded.asksDeclined) {
     emitLine(ctx, pc.yellow("  Every consent ask was answered no: only the acknowledgement was recorded."));
   }
 }
@@ -96,13 +96,11 @@ async function buildRecordInput(flags: ManualConsentCreateFlags): Promise<Record
 
   const effectiveDate = flags.effectiveDate?.trim();
   if (!effectiveDate) throw new UsageError("--effective-date <YYYY-MM-DD> is required.");
-  if (!DATE_RE.test(effectiveDate)) {
-    throw new UsageError(`--effective-date "${effectiveDate}" must be YYYY-MM-DD.`);
-  }
+  assertDate(effectiveDate, "--effective-date");
 
   const validUntil = flags.validUntil?.trim();
   if (!validUntil) throw new UsageError("--valid-until <YYYY-MM-DD> is required.");
-  if (!DATE_RE.test(validUntil)) throw new UsageError(`--valid-until "${validUntil}" must be YYYY-MM-DD.`);
+  assertDate(validUntil, "--valid-until");
 
   // May be empty: a sheet that answered "no" to every consent ask.
   const items: IssueItem[] = (flags.item ?? []).map(parseItem);
@@ -133,7 +131,7 @@ export async function manualConsentClaimLinkCommand(
   const customerId = flags.customer?.trim();
   if (!customerId) throw new UsageError("--customer <id> is required.");
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const link: ClaimLink = await client.manualConsents.createClaimLink({
     customerId,
     ...(flags.reference?.trim() ? { reference: flags.reference.trim() } : {}),
@@ -163,7 +161,7 @@ export async function manualConsentRevokeCommand(
     throw new UsageError(`"${consentRef}" is not a valid consentRef (expected 0x + hex).`);
   }
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: ManualConsentRevocation = await client.manualConsents.revoke(consentRef, {
     ...(flags.reason?.trim() ? { reason: flags.reason.trim() } : {}),
   });
@@ -177,11 +175,8 @@ export async function manualConsentRevokeCommand(
   emitLine(ctx, `${pc.green("✓")} Revoked ${pc.bold(result.consentRef)} ${tag}`);
   // `gate` says what check answers NOW for that purpose: "denied" (this consent backed
   // it), "superseded" (a later consent had already taken it over and is untouched) or
-  // "unchanged" (an idempotent repeat). Read structurally: typed from @agreely/sdk 0.4.0.
-  const gate = (result as { gate?: unknown }).gate;
-  if (typeof gate === "string") {
-    emitLine(ctx, `  ${pc.bold("gate")}  ${gate}`);
-  }
+  // "unchanged" (an idempotent repeat).
+  emitLine(ctx, `  ${pc.bold("gate")}  ${result.gate}`);
 }
 
 export interface ManualConsentEraseFlags {
@@ -197,7 +192,7 @@ export async function manualConsentEraseCommand(
     throw new UsageError(`"${consentRef}" is not a valid consentRef (expected 0x + hex).`);
   }
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: ManualConsentErasure = await client.manualConsents.erase(consentRef, {
     ...(flags.reason?.trim() ? { reason: flags.reason.trim() } : {}),
   });

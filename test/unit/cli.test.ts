@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgreelyAuthError,
   AgreelyBillingInactiveError,
+  AgreelyConflictError,
   AgreelyNotFoundError,
   AgreelyRateLimitError,
   AgreelyUnavailableError,
@@ -683,10 +684,9 @@ describe("manual-consent create: local PDF hashing (data minimization)", () => {
     expect(h.record).not.toHaveBeenCalled();
   });
 
-  // SDK 0.3.0 surfaces a 409 as a non-retryable AgreelyUnavailableError; it is a state
-  // conflict (e.g. a verbal consent still awaiting its paper), never an outage.
-  it("a 409 conflict exits 2 with code conflict, not 4", async () => {
-    h.record.mockRejectedValue(new AgreelyUnavailableError("awaits its paper", { status: 409, retryable: false }));
+  // A 409 is a state conflict (e.g. a verbal consent still awaiting its paper), never an outage.
+  it("a 409 conflict exits 2 with its code, not 4", async () => {
+    h.record.mockRejectedValue(new AgreelyConflictError("awaits its paper", { code: "conflict", status: 409 }));
     const io = makeIo({ env: ENV });
     expect(await run(argv(...baseArgs(writePdf()), "--item", "x:y", "--json"), io.io)).toBe(EXIT.USAGE);
     expect(io.err()).toContain('"conflict"');

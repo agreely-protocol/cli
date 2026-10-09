@@ -42,6 +42,7 @@ import {
 } from "./commands/holds.js";
 import { consentSheetCreateCommand, type ConsentSheetCreateFlags } from "./commands/consent-sheet.js";
 import { documentsListCommand, documentsPdfCommand, documentsShowCommand, type DocumentsPdfFlags } from "./commands/documents.js";
+import { collect } from "./flags.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { configSetCommand, loginCommand } from "./commands/login.js";
 import type { CredentialStore } from "./config.js";
@@ -56,7 +57,7 @@ export const VERSION = "0.4.0";
 function withGlobals(cmd: Command): Command {
   return cmd
     .option("--json", "force JSON output to stdout (agent mode; no prompts)")
-    .option("--api-key <key>", "API key (discouraged — visible in `ps`; prefer AGREELY_API_KEY)")
+    .option("--api-key <key>", "API key (discouraged: visible in `ps`; prefer AGREELY_API_KEY)")
     .option("--base-url <url>", "API base URL (overrides AGREELY_BASE_URL / config)");
 }
 
@@ -74,7 +75,7 @@ export async function run(
 
   program
     .name("agreely")
-    .description("The Agreely consent gate — interactive for humans, scriptable JSON for agents.")
+    .description("The Agreely consent gate: interactive for humans, scriptable JSON for agents.")
     .version(VERSION, "-v, --version", "print the version")
     .enablePositionalOptions()
     .exitOverride()
@@ -136,7 +137,7 @@ export async function run(
   });
 
   withGlobals(
-    program.command("whoami").description("Verify the key — which key, source, and base URL"),
+    program.command("whoami").description("Verify the key: which key, source, and base URL"),
   ).action(async (_o, cmd: Command) => {
     await whoamiCommand(ctxFor(cmd));
   });
@@ -256,7 +257,7 @@ export async function run(
       .option(
         "--did-doc <file>",
         "resolve DIDs from a local DID document file (repeatable) for an air-gapped verify",
-        (val: string, prev: string[]) => [...prev, val],
+        collect,
         [] as string[],
       ),
   ).action(
@@ -289,14 +290,15 @@ export async function run(
       .option("--valid-until <date>", "the consent end (YYYY-MM-DD, through the end of that day in your company's timezone; at most 10 years)")
       .option(
         "--item <item>",
-        "a consent ask ticked on the sheet: a catalog id OR category:purpose (repeatable; omit when every ask was answered no)",
-        (val: string, prev: string[]) => [...prev, val],
+        "a consent ask ticked on the sheet: a catalog id OR category:purpose, split on the first colon (a category containing a colon needs the catalog id; repeatable; omit when every ask was answered no)",
+        collect,
         [] as string[],
       )
       .option("--pdf <path>", "path to the signed PDF (its SHA-256 is computed locally)")
       .option("--upload", "also upload the PDF bytes (off by default; only the hash is sent)")
       .option("--sensitive-express-attested", "attest the consent to a sensitive purpose was given expressly")
-      .option("--version-attested", "attest the signed sheet is the version recorded"),
+      .option("--version-attested", "attest the signed sheet is the version recorded")
+      .option("--idempotency-key <key>", "reuse to make a retry safe (generated and printed on a timeout when omitted)"),
   ).action(
     async (
       opts: {
@@ -309,6 +311,7 @@ export async function run(
         upload?: boolean;
         sensitiveExpressAttested?: boolean;
         versionAttested?: boolean;
+        idempotencyKey?: string;
       },
       cmd: Command,
     ) => {
@@ -322,6 +325,7 @@ export async function run(
         ...(opts.upload !== undefined ? { upload: opts.upload } : {}),
         ...(opts.sensitiveExpressAttested !== undefined ? { sensitiveExpressAttested: opts.sensitiveExpressAttested } : {}),
         ...(opts.versionAttested !== undefined ? { versionAttested: opts.versionAttested } : {}),
+        ...(opts.idempotencyKey !== undefined ? { idempotencyKey: opts.idempotencyKey } : {}),
       });
     },
   );
@@ -372,7 +376,7 @@ export async function run(
   withGlobals(
     relationship
       .command("end")
-      .description("End a customer relationship — attest the purposes are accomplished (art. 23)")
+      .description("End a customer relationship: attest the purposes are accomplished (art. 23)")
       .argument("<customerRef>", "the company's own reference for the customer (never a DID)")
       .option("--reason <text>", "the required art. 23 justification for ending the relationship"),
   ).action(async (customerRef: string, opts: { reason?: string }, cmd: Command) => {
@@ -384,7 +388,7 @@ export async function run(
   withGlobals(
     relationship
       .command("revert")
-      .description("Undo a mistaken end of relationship — an art. 11 / art. 28 correction")
+      .description("Undo a mistaken end of relationship (an art. 11 / art. 28 correction)")
       .argument("<customerRef>", "the company's own reference for the customer (never a DID)")
       .option("--reason <text>", "the required art. 11 / art. 28 justification for undoing the end"),
   ).action(async (customerRef: string, opts: { reason?: string }, cmd: Command) => {
@@ -393,10 +397,17 @@ export async function run(
     });
   });
 
-  const collect = (val: string, prev: string[]): string[] => [...prev, val];
-  /** Forward only the options the user actually passed (exactOptionalPropertyTypes-safe). */
+  /**
+   * Forward only the options the user actually passed, and never the global flags
+   * (--api-key, --base-url, --json), so a secret can never travel into a request.
+   */
+  const GLOBAL_KEYS = new Set(["json", "apiKey", "baseUrl"]);
   const defined = <T extends object>(o: T): T =>
-    Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && !(Array.isArray(v) && v.length === 0))) as T;
+    Object.fromEntries(
+      Object.entries(o).filter(
+        ([k, v]) => !GLOBAL_KEYS.has(k) && v !== undefined && !(Array.isArray(v) && v.length === 0),
+      ),
+    ) as T;
 
   // Verbal (telephone) consents: scope attest_verbal to record, attest for the paper.
   const verbal = program.command("verbal-consent").description("Record a consent given by telephone, read its history, or confirm it with the signed paper");
@@ -406,7 +417,7 @@ export async function run(
       .description("Record a telephone consent (tier verbal, assurance company_documented)")
       .option("--customer <id>", "the subject reference")
       .option("--document-version <id>", "the published document version the call was held against")
-      .option("--answer <answer>", 'one consent ask answered, "category:purpose=yes|no" (repeatable)', collect, [] as string[])
+      .option("--answer <answer>", 'one consent ask answered, "category:purpose=yes|no", split on the first colon (a category containing a colon cannot be written; repeatable)', collect, [] as string[])
       .option("--obtained-at <instant>", "the instant of the call (RFC 3339 with an offset; at most 7 days old)")
       .option("--obtained-by <staff>", "the staff member who took the call")
       .option("--script-version <label>", "the version label of the script read aloud")
@@ -448,7 +459,7 @@ export async function run(
       .command("withdraw")
       .description("Record a withdrawal the person asked for, on her behalf (scope withdraw; exit 8 on the daily cap)")
       .argument("<customerRef>", "the company's own reference for the customer")
-      .argument("<consentRef>", "the protocol consentRef (0x + 64 hex)")
+      .argument("<consentRef>", "the consentRef (64 hex, 0x prefix optional)")
       .option("--channel <channel>", "phone | email | mail | in_person | other")
       .option("--operator <id>", "your opaque id of the staff member who received the request (never an email)")
       .option("--requested-at <instant>", "when the person asked (RFC 3339 with an offset)")
@@ -543,7 +554,8 @@ export async function run(
     holds
       .command("sync")
       .description("Walk EVERY page of the holds feed and print the cursor to keep (scope holds)")
-      .option("--changed-since <cursor>", "the previous sync's cursor (omit for a snapshot)"),
+      .option("--changed-since <cursor>", "the previous sync's cursor (omit for a snapshot)")
+      .option("--max-pages <n>", "bound on pages read (default 1000; reaching it throws rather than print a partial feed)"),
   ).action(async (opts: HoldsSyncFlags, cmd: Command) => {
     await holdsSyncCommand(ctxFor(cmd), defined(opts));
   });

@@ -18,7 +18,7 @@ export async function requestCancelCommand(ctx: Context, requestId: string): Pro
     throw new UsageError(`"${requestId}" is not a valid requestId (expected 0x + 64 hex).`);
   }
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: CancelledRequest = await client.consentRequests.cancel(requestId);
 
   if (ctx.agent) {

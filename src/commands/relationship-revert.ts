@@ -33,7 +33,7 @@ export async function relationshipRevertCommand(
     );
   }
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: RelationshipReverted = await client.relationships.revert({ customerRef: ref, reason });
 
   if (ctx.agent) {

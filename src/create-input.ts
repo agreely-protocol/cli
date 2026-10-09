@@ -6,10 +6,12 @@
 //
 // parseItem stays for the manual-consent path, which still resolves items
 // against its signed document's grid: a "category:purpose" value is split on
-// the FIRST colon and passed through raw; the server resolves it.
+// the FIRST colon (both sides trimmed) and the server resolves it. A category that itself
+// contains ":" cannot be written this way: pass the catalog id instead.
 
 import type { CreateConsentRequestInput, IssueItem } from "@agreely/sdk";
 import { UsageError } from "./errors.js";
+import { DATE_RE, splitPair } from "./flags.js";
 
 export interface CreateFlags {
   customer?: string;
@@ -20,7 +22,6 @@ export interface CreateFlags {
 }
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Parse one --item value (manual-consent path). With a colon -> a raw
@@ -34,12 +35,11 @@ export function parseItem(raw: string): IssueItem {
     if (id === "") throw new UsageError("An --item value cannot be empty.");
     return id;
   }
-  const category = raw.slice(0, idx);
-  const purpose = raw.slice(idx + 1);
-  if (category.trim() === "" || purpose.trim() === "") {
+  const pair = splitPair(raw);
+  if (pair === undefined) {
     throw new UsageError(`Invalid --item "${raw}". Use a catalog id or "category:purpose".`);
   }
-  return { category, purpose };
+  return pair;
 }
 
 /** Build (and validate) the SDK input from the scriptable flags. Throws UsageError. */

@@ -7,7 +7,7 @@
 //
 // Base URL: --base-url > AGREELY_BASE_URL > config file > the SDK default.
 //
-// Resolution NEVER prompts. A missing key throws a UsageError (exit 2) — an agent
+// Resolution NEVER prompts. A missing key throws a UsageError (exit 2): an agent
 // in a non-TTY must get a clear error, never a hang.
 
 import { Agreely } from "@agreely/sdk";
@@ -58,10 +58,21 @@ export async function resolveAuth(ctx: Context): Promise<ResolvedAuth> {
 }
 
 /** Build a configured SDK client from the resolved auth. */
-export async function buildClient(ctx: Context): Promise<{ client: Agreely; auth: ResolvedAuth }> {
+/**
+ * The time budget of a write, in ms. The SDK default (800 ms) is sized for the consent
+ * check on a request path; a write that is cut off may or may not have landed, so writes
+ * get a sane budget and a retry key (see `writeKey`).
+ */
+export const WRITE_TIMEOUT_MS = 15_000;
+
+export async function buildClient(
+  ctx: Context,
+  opts: { write?: boolean } = {},
+): Promise<{ client: Agreely; auth: ResolvedAuth }> {
   const auth = await resolveAuth(ctx);
   const client = new Agreely({
     apiKey: auth.apiKey,
+    ...(opts.write ? { timeout: WRITE_TIMEOUT_MS } : {}),
     ...(auth.baseUrl !== undefined ? { baseUrl: auth.baseUrl } : {}),
   });
   return { client, auth };

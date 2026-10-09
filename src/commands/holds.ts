@@ -3,13 +3,14 @@
 //                       [--idempotency-key <k>]
 // agreely holds release <customerRef> <holdId> --reason <text> [--idempotency-key <k>]
 // agreely holds list    [--changed-since <cursor>] [--page-token <t>]      (ONE page, scope 'holds')
-// agreely holds sync    [--changed-since <cursor>]                         (EVERY page, scope 'holds')
+// agreely holds sync    [--changed-since <cursor>] [--max-pages <n>]       (EVERY page, scope 'holds')
 //
 // place/release use scope 'registry'. A hold with no --rule and no --cell covers everything.
 // An other_law hold REQUIRES --provision (the law that requires keeping the information);
 // a rights_request hold refuses one. The feed pages with pageToken/nextPageToken and only
 // the LAST page carries `cursor`: keep it, it is the next sync's --changed-since. `sync`
-// walks every page and throws rather than print a partial feed. Delivery is at least once:
+// walks every page (default bound 1000, raise it with --max-pages) and throws rather than
+// print a partial feed. Delivery is at least once:
 // upsert by id. Without --changed-since the feed is a snapshot of every active hold; with
 // it, a delta. The daily caps (429 hold_budget_exhausted, hold_release_cap_reached) exit 8.
 
@@ -17,11 +18,10 @@ import type { PlaceHoldInput, PlacedHold, ReleasedHold, RetentionHoldPage, Holds
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { need, oneOf, opt } from "../flags.js";
+import { assertDate, keyOrNew, need, oneOf, opt } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const GROUNDS = ["rights_request", "other_law"] as const;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface HoldsPlaceFlags {
   ground?: string;
@@ -35,8 +35,7 @@ export interface HoldsPlaceFlags {
 
 function checkDate(value: string | undefined, name: string): string | undefined {
   const v = opt(value);
-  if (v !== undefined && !DATE_RE.test(v)) throw new UsageError(`${name} "${v}" must be YYYY-MM-DD.`);
-  return v;
+  return v !== undefined ? assertDate(v, name) : undefined;
 }
 
 export async function holdsPlaceCommand(ctx: Context, customerRef: string, flags: HoldsPlaceFlags): Promise<void> {
@@ -53,7 +52,8 @@ export async function holdsPlaceCommand(ctx: Context, customerRef: string, flags
   const cells = (flags.cell ?? []).map((c) => c.trim()).filter((c) => c !== "");
   const startedOn = checkDate(flags.startedOn, "--started-on");
   const reviewOn = checkDate(flags.reviewOn, "--review-on");
-  const key = opt(flags.idempotencyKey);
+  const key = keyOrNew(flags.idempotencyKey);
+  ctx.retryKey = key;
 
   const common = {
     scope: rules.length === 0 && cells.length === 0 ? ("all" as const) : { rules, cells },
@@ -65,8 +65,8 @@ export async function holdsPlaceCommand(ctx: Context, customerRef: string, flags
       ? { ...common, ground, provision: provision as string }
       : { ...common, ground };
 
-  const { client } = await buildClient(ctx);
-  const hold: PlacedHold = await client.retention.placeHold(ref, input, key !== undefined ? { idempotencyKey: key } : {});
+  const { client } = await buildClient(ctx, { write: true });
+  const hold: PlacedHold = await client.retention.placeHold(ref, input, { idempotencyKey: key });
 
   if (ctx.agent) {
     emitJson(ctx, hold);
@@ -93,14 +93,15 @@ export async function holdsReleaseCommand(
   const ref = need(customerRef, "<customerRef>");
   const id = need(holdId, "<holdId>");
   const reason = need(flags.reason, '--reason "<text>"');
-  const key = opt(flags.idempotencyKey);
+  const key = keyOrNew(flags.idempotencyKey);
+  ctx.retryKey = key;
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const released: ReleasedHold = await client.retention.releaseHold(
     ref,
     id,
     { reason },
-    key !== undefined ? { idempotencyKey: key } : {},
+    { idempotencyKey: key },
   );
 
   if (ctx.agent) {
@@ -144,14 +145,24 @@ export async function holdsListCommand(ctx: Context, flags: HoldsListFlags): Pro
 
 export interface HoldsSyncFlags {
   changedSince?: string;
+  maxPages?: string;
 }
 
 export async function holdsSyncCommand(ctx: Context, flags: HoldsSyncFlags): Promise<void> {
   const changedSince = opt(flags.changedSince);
+  const maxPagesFlag = opt(flags.maxPages);
+  let maxPages: number | undefined;
+  if (maxPagesFlag !== undefined) {
+    maxPages = Number(maxPagesFlag);
+    if (!Number.isInteger(maxPages) || maxPages < 1) {
+      throw new UsageError(`--max-pages "${maxPagesFlag}" must be a positive integer.`);
+    }
+  }
   const { client } = await buildClient(ctx);
-  const sync: HoldsSync = await client.retention.syncHolds(
-    changedSince !== undefined ? { changedSince } : {},
-  );
+  const sync: HoldsSync = await client.retention.syncHolds({
+    ...(changedSince !== undefined ? { changedSince } : {}),
+    ...(maxPages !== undefined ? { maxPages } : {}),
+  });
 
   if (ctx.agent) {
     emitJson(ctx, sync);

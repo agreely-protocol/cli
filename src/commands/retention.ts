@@ -12,11 +12,10 @@ import type { CustomerRetention, DeclareDispositionInput, DeclaredDisposition } 
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { need, oneOf, opt } from "../flags.js";
+import { assertDate, need, oneOf, opt } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const DISPOSITIONS = ["destroyed", "anonymized", "legal_hold"] as const;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function retentionShowCommand(ctx: Context, customerRef: string): Promise<void> {
   const ref = need(customerRef, "<customerRef>");
@@ -69,9 +68,7 @@ export async function retentionDisposeCommand(
     if (disposition !== "legal_hold") {
       throw new UsageError("--retention-until applies to a legal_hold only.");
     }
-    if (!DATE_RE.test(retentionUntil)) {
-      throw new UsageError(`--retention-until "${retentionUntil}" must be YYYY-MM-DD.`);
-    }
+    assertDate(retentionUntil, "--retention-until");
   }
 
   const base = scheduleRef !== undefined ? { scheduleRef } : {};
@@ -80,7 +77,7 @@ export async function retentionDisposeCommand(
       ? { ...base, disposition, reason: reason as string, ...(retentionUntil !== undefined ? { retentionUntil } : {}) }
       : { ...base, disposition, ...(reason !== undefined ? { reason } : {}) };
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: DeclaredDisposition = await client.retention.declareDisposition(ref, input);
 
   if (ctx.agent) {

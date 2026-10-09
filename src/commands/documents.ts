@@ -12,7 +12,7 @@ import type { ConsentDocumentDetail, ConsentDocumentSummary } from "@agreely/sdk
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { assertWritable, need, oneOf, opt, writeBytes } from "../flags.js";
+import { discardOutput, need, oneOf, opt, openOutput, writeAndClose } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 export async function documentsListCommand(ctx: Context): Promise<void> {
@@ -65,11 +65,21 @@ export async function documentsPdfCommand(
   const out = need(flags.out, "--out <file.pdf>");
   const locale = oneOf(opt(flags.locale) ?? "fr", ["fr", "en"] as const, "--locale");
   if (out === "-") throw new UsageError("--out must be a file path: the PDF is never written to stdout.");
-  await assertWritable(out, flags.force === true);
+  const file = await openOutput(out, flags.force === true);
 
-  const { client } = await buildClient(ctx);
-  const doc = await client.consentDocuments.getInformationPdf(id, { locale });
-  await writeBytes(out, doc.pdf);
+  let doc;
+  try {
+    const { client } = await buildClient(ctx);
+    doc = await client.consentDocuments.getInformationPdf(id, { locale });
+  } catch (err) {
+    await discardOutput(file, out);
+    throw err;
+  }
+  try {
+    await writeAndClose(file, doc.pdf);
+  } catch (err) {
+    throw new UsageError(`Could not write ${out}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   if (ctx.agent) {
     emitJson(ctx, { documentVersionId: id, locale, file: out, bytes: doc.pdf.length, filename: doc.filename, contentType: doc.contentType });

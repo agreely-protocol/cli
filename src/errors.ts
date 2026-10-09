@@ -5,6 +5,7 @@ import {
   AgreelyAuthError,
   AgreelyBillingInactiveError,
   AgreelyConfigError,
+  AgreelyConflictError,
   AgreelyDailyCapError,
   AgreelyError,
   AgreelyNotFoundError,
@@ -19,7 +20,7 @@ export const EXIT = {
   OK: 0,
   /** An unexpected/uncategorised failure. */
   ERROR: 1,
-  /** Bad CLI usage, missing/invalid args, a server validation error, or a 409 state conflict. */
+  /** Bad CLI usage, missing/invalid args, a server validation error (including a 413), or a 409 state conflict. */
   USAGE: 2,
   /** The key was missing, invalid, revoked, or lacks the scope. */
   AUTH: 3,
@@ -27,11 +28,11 @@ export const EXIT = {
   UNAVAILABLE: 4,
   /** The per-company rate window was exceeded. */
   RATE_LIMITED: 5,
-  /** A receipt was checked and did NOT verify (`agreely verify`). Not an error — a verdict. */
+  /** A receipt was checked and did NOT verify (`agreely verify`). Not an error: a verdict. */
   VERIFY_FAILED: 6,
   /**
    * The company's Agreely subscription is inactive/lapsed (HTTP 402). DISTINCT
-   * from an outage (4): actionable — the company must pay to restore service —
+   * from an outage (4): actionable (the company must pay to restore service)
    * and fail-closed for gating (a lapsed biller never gets an allow).
    */
   BILLING_INACTIVE: 7,
@@ -41,7 +42,12 @@ export const EXIT = {
    * window (5): retrying today cannot succeed, so an agent must not loop on it.
    */
   DAILY_CAP: 8,
-  /** A clean check DENY — an expected negative, NOT an error. */
+  /**
+   * The write SUCCEEDED but its output could not be saved (a PDF that could not be written
+   * after the sheet was minted). The result was still printed: do NOT retry the call.
+   */
+  PARTIAL: 9,
+  /** A clean check DENY: an expected negative, NOT an error. */
   DENY: 10,
 } as const;
 
@@ -60,7 +66,7 @@ export class UsageError extends Error {
  */
 export function exitCodeForError(err: unknown): number {
   if (err instanceof UsageError) return EXIT.USAGE;
-  if (isConflict(err)) return EXIT.USAGE;
+  if (err instanceof AgreelyConflictError) return EXIT.USAGE;
   if (err instanceof AgreelyAuthError) return EXIT.AUTH;
   if (err instanceof AgreelyBillingInactiveError) return EXIT.BILLING_INACTIVE;
   if (err instanceof AgreelyDailyCapError) return EXIT.DAILY_CAP;
@@ -76,11 +82,8 @@ export function exitCodeForError(err: unknown): number {
 /** A stable string code for the stderr error envelope, derived from the error. */
 export function errorCodeFor(err: unknown): string {
   if (err instanceof UsageError) return "usage";
-  if (isConflict(err)) {
-    // A specific code (identity_held, already_released, ...) is more useful than "conflict".
-    const code = (err as AgreelyError).code as string | undefined;
-    return code && code !== "unavailable" ? code : "conflict";
-  }
+  // A 409 keeps its specific code (identity_held, already_released, retry, ...).
+  if (err instanceof AgreelyConflictError) return err.code || "conflict";
   if (
     err instanceof AgreelyAuthError ||
     err instanceof AgreelyValidationError ||
@@ -94,17 +97,6 @@ export function errorCodeFor(err: unknown): string {
     return err.code;
   }
   return "error";
-}
-
-/**
- * A 409: the request contradicts the record's current state (a purpose already held by
- * a stronger active consent, a verbal consent still awaiting its paper, a relationship
- * that has ended). It is NOT an outage, but @agreely/sdk 0.3.0 has no class for it and
- * surfaces it as a non-retryable AgreelyUnavailableError, which would exit 4 and read as
- * "Agreely is down". Matched on the HTTP status so it holds for any SDK version.
- */
-function isConflict(err: unknown): boolean {
-  return err instanceof AgreelyError && err.status === 409;
 }
 
 export function messageFor(err: unknown): string {

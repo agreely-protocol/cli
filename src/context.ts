@@ -20,6 +20,8 @@ export interface Context {
   store: CredentialStore;
   /** The exit code to return on a clean run. Commands may bump it (e.g. DENY). */
   exit: number;
+  /** The Idempotency-Key of the write in flight, printed when it ends in a timeout or outage. */
+  retryKey?: string;
 }
 
 export function createContext(io: Io, globals: GlobalFlags, store?: CredentialStore): Context {

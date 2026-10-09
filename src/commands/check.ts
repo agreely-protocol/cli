@@ -185,33 +185,24 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
   ctx.exit = anyDeny ? EXIT.DENY : EXIT.OK;
 }
 
-/**
- * The DECLARED non-consent lawful basis behind a `status: "necessity"` allow, or
- * undefined. openapi.yaml documents `basis` on both CheckDecision and BatchDecision and
- * the API returns it, but the field is typed only from @agreely/sdk 0.3.0 onward, so we
- * read it structurally: that builds against the pinned 0.2.0 AND against later versions,
- * and it costs nothing (the SDK passes wire fields through verbatim).
- */
+/** The DECLARED non-consent lawful basis behind a `status: "necessity"` allow, or undefined. */
 function declaredBasis(decision: CheckResult | BatchDecision): string | undefined {
-  const basis = (decision as { basis?: unknown }).basis;
-  return typeof basis === "string" && basis !== "" ? basis : undefined;
+  return decision.basis ?? undefined;
 }
 
 /**
- * The proof fields of a record-backed decision: `assurance` and `tier`, passed through
- * verbatim when present. Read structurally because `tier` and the `company_documented`
- * assurance are typed only from @agreely/sdk 0.4.0 onward, and this CLI still builds
- * against 0.3.0 (the SDK passes wire fields through verbatim either way).
+ * The proof fields of a record-backed decision, passed through verbatim when present:
+ * `assurance`, `tier`, and the end of the consent (`validUntil`, plus `revokedAt` once
+ * withdrawn). All are absent, never null, when no record backs the answer.
  */
 function proofOf(
   decision: CheckResult | BatchDecision,
 ): { assurance?: string; tier?: string; validUntil?: string; revokedAt?: string } {
-  const wire = decision as { assurance?: unknown; tier?: unknown; validUntil?: unknown; revokedAt?: unknown };
   return {
-    ...(typeof wire.validUntil === "string" && wire.validUntil !== "" ? { validUntil: wire.validUntil } : {}),
-    ...(typeof wire.revokedAt === "string" && wire.revokedAt !== "" ? { revokedAt: wire.revokedAt } : {}),
-    ...(typeof wire.assurance === "string" && wire.assurance !== "" ? { assurance: wire.assurance } : {}),
-    ...(typeof wire.tier === "string" && wire.tier !== "" ? { tier: wire.tier } : {}),
+    ...(decision.validUntil ? { validUntil: decision.validUntil } : {}),
+    ...(decision.revokedAt ? { revokedAt: decision.revokedAt } : {}),
+    ...(decision.assurance ? { assurance: decision.assurance } : {}),
+    ...(decision.tier ? { tier: decision.tier } : {}),
   };
 }
 

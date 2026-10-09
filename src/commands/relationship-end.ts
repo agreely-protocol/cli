@@ -32,7 +32,7 @@ export async function relationshipEndCommand(
     );
   }
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: RelationshipEnded = await client.relationships.end({ customerRef: ref, reason });
 
   if (ctx.agent) {

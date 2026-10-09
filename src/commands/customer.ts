@@ -4,14 +4,31 @@
 //
 // The customer registry (scope: 'registry'), one customerRef at a time. `get` returns
 // METADATA only (every personal field is a boolean, never read back). `set` is a MERGE:
-// an absent flag leaves the field as it stands, and an EMPTY value ("") clears it.
+// an absent flag leaves the field as it stands, and an EMPTY value ("") clears it (every field follows the same rule).
 // 409 identity_held / identity_erased means the identity cannot be changed now.
 
-import type { CustomerRecord, UpsertCustomerInput, UpsertCustomerResult } from "@agreely/sdk";
+import type { CustomerRecord, RegistryBasis, UpsertCustomerInput, UpsertCustomerResult } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { need } from "../flags.js";
+import { need, oneOf } from "../flags.js";
+
+// The non-consent grounds of both acts the registry accepts (`consent` itself is refused).
+const LEGAL_BASES = [
+  "contract",
+  "necessary_for_service",
+  "security_fraud",
+  "legal_obligation",
+  "professional_contact",
+  "attributions",
+  "programme",
+  "entente_collecte",
+  "compatible_use",
+  "manifest_benefit",
+  "law_application",
+  "public_character",
+  "depersonalized_research",
+] as const satisfies readonly RegistryBasis[];
 import { emitJson, emitLine, pc } from "../output.js";
 
 function show(ctx: Context, r: CustomerRecord): void {
@@ -53,21 +70,33 @@ export async function customerSetCommand(
   flags: CustomerSetFlags,
 ): Promise<void> {
   const ref = need(customerRef, "<customerRef>");
-  // A flag that was passed carries its value as is: "" CLEARS the field (a merge, not a replace).
-  const input = {
-    ...(flags.displayName !== undefined ? { displayName: flags.displayName } : {}),
-    ...(flags.email !== undefined ? { email: flags.email } : {}),
-    ...(flags.basisNote !== undefined ? { basisNote: flags.basisNote } : {}),
-    ...(flags.legalBasis !== undefined ? { legalBasis: flags.legalBasis === "" ? null : flags.legalBasis } : {}),
-    ...(flags.noticeLocale !== undefined ? { noticeLocale: flags.noticeLocale === "" ? null : flags.noticeLocale } : {}),
-  } as UpsertCustomerInput;
+  // One rule for every field: a flag that was NOT passed leaves the field untouched, a
+  // flag whose trimmed value is empty CLEARS it (null), anything else writes it.
+  const clearable = (value: string | undefined): string | null | undefined =>
+    value === undefined ? undefined : value.trim() === "" ? null : value.trim();
+  const displayName = clearable(flags.displayName);
+  const email = clearable(flags.email);
+  const basisNote = clearable(flags.basisNote);
+  const legalBasisRaw = clearable(flags.legalBasis);
+  const noticeLocaleRaw = clearable(flags.noticeLocale);
+  const legalBasis =
+    typeof legalBasisRaw === "string" ? oneOf(legalBasisRaw, LEGAL_BASES, "--legal-basis") : legalBasisRaw;
+  const noticeLocale =
+    typeof noticeLocaleRaw === "string" ? oneOf(noticeLocaleRaw, ["fr", "en"] as const, "--notice-locale") : noticeLocaleRaw;
+  const input: UpsertCustomerInput = {
+    ...(displayName !== undefined ? { displayName } : {}),
+    ...(email !== undefined ? { email } : {}),
+    ...(basisNote !== undefined ? { basisNote } : {}),
+    ...(legalBasis !== undefined ? { legalBasis } : {}),
+    ...(noticeLocale !== undefined ? { noticeLocale } : {}),
+  };
   if (Object.keys(input).length === 0) {
     throw new UsageError(
       "Nothing to set: pass at least one of --display-name, --email, --basis-note, --legal-basis, --notice-locale (an empty value clears the field).",
     );
   }
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: UpsertCustomerResult = await client.customers.upsert(ref, input);
   if (ctx.agent) {
     emitJson(ctx, result);

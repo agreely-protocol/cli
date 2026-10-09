@@ -21,10 +21,10 @@ describe("parseItem", () => {
     expect(parseItem("Cat:Pur:Extra")).toEqual({ category: "Cat", purpose: "Pur:Extra" });
   });
 
-  it("does NOT normalize case/whitespace of the raw labels", () => {
+  it("trims the labels but never changes their case (the server normalizes)", () => {
     expect(parseItem("  Email Address :  Marketing  ")).toEqual({
-      category: "  Email Address ",
-      purpose: "  Marketing  ",
+      category: "Email Address",
+      purpose: "Marketing",
     });
   });
 

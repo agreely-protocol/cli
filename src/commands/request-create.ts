@@ -18,6 +18,7 @@ import type { CreateConsentRequestInput, IssuedRequest } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { buildCreateInput, type CreateFlags } from "../create-input.js";
+import { DATE_RE } from "../flags.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
@@ -32,7 +33,7 @@ function hasScriptableFlags(flags: CreateCommandFlags): boolean {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function requestCreateCommand(ctx: Context, flags: CreateCommandFlags): Promise<void> {
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
 
   let input: CreateConsentRequestInput;
   if (ctx.agent || hasScriptableFlags(flags)) {
@@ -66,7 +67,6 @@ export async function requestCreateCommand(ctx: Context, flags: CreateCommandFla
   }
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 async function runWizard(): Promise<CreateConsentRequestInput | null> {

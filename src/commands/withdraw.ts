@@ -5,17 +5,19 @@
 // a key by default). Always recordedOnBehalf and assurance company_attested. `gate` says
 // what check answers NOW for that purpose: read it before telling anyone the use stopped.
 // The operator is an opaque id of the staff member, never an email address. The daily cap
-// (429 withdrawal_daily_cap) is NOT a rate window: do not retry (exit 8).
+// (429 withdrawal_daily_cap) is NOT a rate window: do not retry (exit 8). An
+// Idempotency-Key is generated when none is given and printed if the call times out.
 
 import type { ConsentWithdrawal, WithdrawalChannel } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { need, oneOf, opt } from "../flags.js";
+import { assertInstant, keyOrNew, need, oneOf, opt } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const CHANNELS = ["phone", "email", "mail", "in_person", "other"] as const satisfies readonly WithdrawalChannel[];
-const CONSENT_REF_RE = /^0x[0-9a-f]+$/i;
+// Exactly what the SDK accepts: 64 hex characters, the 0x prefix optional.
+const CONSENT_REF_RE = /^(?:0[xX])?[0-9a-fA-F]{64}$/;
 
 export interface WithdrawFlags {
   channel?: string;
@@ -34,15 +36,17 @@ export async function withdrawCommand(
   const customer = need(customerRef, "<customerRef>");
   const ref = need(consentRef, "<consentRef>");
   if (!CONSENT_REF_RE.test(ref)) {
-    throw new UsageError(`"${ref}" is not a valid consentRef (expected 0x + hex).`);
+    throw new UsageError(`"${ref}" is not a valid consentRef (expected 64 hex characters, 0x prefix optional).`);
   }
   const channel = oneOf(need(flags.channel, "--channel"), CHANNELS, "--channel");
   const operator = need(flags.operator, "--operator <id>");
-  const requestedAt = opt(flags.requestedAt);
+  const requestedAtFlag = opt(flags.requestedAt);
+  const requestedAt = requestedAtFlag !== undefined ? assertInstant(requestedAtFlag, "--requested-at") : undefined;
   const reason = opt(flags.reason);
-  const key = opt(flags.idempotencyKey);
+  const key = keyOrNew(flags.idempotencyKey);
+  ctx.retryKey = key;
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { write: true });
   const result: ConsentWithdrawal = await client.withdrawals.record(
     customer,
     ref,
@@ -52,7 +56,7 @@ export async function withdrawCommand(
       ...(requestedAt !== undefined ? { requestedAt } : {}),
       ...(reason !== undefined ? { reason } : {}),
     },
-    key !== undefined ? { idempotencyKey: key } : {},
+    { idempotencyKey: key },
   );
 
   if (ctx.agent) {
