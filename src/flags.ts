@@ -3,6 +3,7 @@
 // collector, idempotency keys, and the output file opened BEFORE any irreversible call.
 
 import { randomUUID } from "node:crypto";
+import { fstatSync } from "node:fs";
 import { open, unlink, type FileHandle } from "node:fs/promises";
 import { UsageError } from "./errors.js";
 
@@ -82,43 +83,70 @@ export function keyOrNew(flag: string | undefined): string {
 
 export interface OutputFile {
   handle: FileHandle;
-  /** Whether this call created the file (so it can be removed if nothing was written). */
+  /** Whether THIS call created the file (so only then may it be removed again). */
   created: boolean;
 }
 
 /**
  * Open the output file BEFORE the call that cannot be replayed, so a missing directory,
  * a directory path or a read-only location fails while nothing has been minted yet.
- * Without --force an existing file is refused (open "wx"). Only a regular file is
- * accepted: /dev/stdout and the like are refused.
+ *
+ * Nothing is truncated here: a new file is created exclusively ("wx"), and an existing one
+ * is refused unless --force, in which case it is opened for update ("r+") with its content
+ * intact until `writeAndClose` replaces it AFTER the call succeeded. Only a regular file
+ * is accepted, and never the file standard output or standard error is redirected to
+ * (`--out /dev/stdout` with stdout sent to a file would write the PDF there).
  */
 export async function openOutput(path: string, force: boolean): Promise<OutputFile> {
   let handle: FileHandle;
+  let created = true;
   try {
-    handle = await open(path, force ? "w" : "wx");
+    handle = await open(path, "wx");
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") throw new UsageError(`${path} already exists: pass --force to overwrite it.`);
-    throw new UsageError(`Cannot write ${path}: ${err instanceof Error ? err.message : String(err)}`);
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      if (!force) throw new UsageError(`${path} already exists: pass --force to overwrite it.`);
+      try {
+        handle = await open(path, "r+");
+        created = false;
+      } catch (err2) {
+        throw new UsageError(`Cannot write ${path}: ${err2 instanceof Error ? err2.message : String(err2)}`);
+      }
+    } else {
+      throw new UsageError(`Cannot write ${path}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
+  const out: OutputFile = { handle, created };
   const stat = await handle.stat();
   if (!stat.isFile()) {
-    await handle.close();
+    await discardOutput(out, path);
     throw new UsageError(`--out ${path} is not a regular file: the PDF is written to a file only.`);
   }
-  return { handle, created: !force };
+  for (const fd of [1, 2]) {
+    let std;
+    try {
+      std = fstatSync(fd);
+    } catch {
+      continue;
+    }
+    if (std.ino === stat.ino && std.dev === stat.dev) {
+      await discardOutput(out, path);
+      throw new UsageError(`--out ${path} is the file standard ${fd === 1 ? "output" : "error"} is redirected to: refusing to write the PDF there.`);
+    }
+  }
+  return out;
 }
 
-/** Write the bytes and close. Throws the raw error: the caller decides what the failure costs. */
+/** Replace the file's content with the bytes, then close. Throws the raw error: the caller decides what the failure costs. */
 export async function writeAndClose(out: OutputFile, bytes: Uint8Array): Promise<void> {
   try {
+    await out.handle.truncate(0);
     await out.handle.writeFile(bytes);
   } finally {
-    await out.handle.close();
+    await out.handle.close().catch(() => undefined);
   }
 }
 
-/** Close and, when this call created it, remove an output file the call never filled. */
+/** Close and, when this call created the file, remove it. A file that already existed is never touched. */
 export async function discardOutput(out: OutputFile, path: string): Promise<void> {
   await out.handle.close().catch(() => undefined);
   if (out.created) await unlink(path).catch(() => undefined);

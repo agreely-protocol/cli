@@ -466,9 +466,44 @@ describe("consent-sheet: the output file is opened BEFORE the mint", () => {
     expect(io.out()).toContain("https://x/claim/t");
     expect(io.err()).toContain("Do NOT retry");
   });
+
+  it("exit 9 leaves no 0-byte file behind (the reference and claim are already printed)", async () => {
+    h.sheet.mockResolvedValue(sheet);
+    h.failWrite.on = true;
+    const out = join(tmp, "lost3.pdf");
+    expect((await json(...create(out))).code).toBe(EXIT.PARTIAL);
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("--force keeps the previous file intact when the mint fails", async () => {
+    h.sheet.mockRejectedValue(new AgreelyConflictError("ended", { code: "relationship_ended", status: 409 }));
+    const out = join(tmp, "previous.pdf");
+    writeFileSync(out, "previous signed pdf");
+    expect((await json(...create(out, "--force"))).code).toBe(EXIT.USAGE);
+    expect(readFileSync(out, "utf8")).toBe("previous signed pdf");
+  });
+
+  it("--force replaces the previous file only after the mint succeeded", async () => {
+    h.sheet.mockResolvedValue(sheet);
+    const out = join(tmp, "replaced.pdf");
+    writeFileSync(out, "previous signed pdf that is longer than the new one");
+    expect((await json(...create(out, "--force"))).code).toBe(EXIT.OK);
+    expect(readFileSync(out, "utf8")).toBe("%PDF-1.4 x");
+  });
 });
 
 describe("documents pdf opens its file first", () => {
+  it("--force keeps the previous file when the download fails, a new path is removed", async () => {
+    h.docPdf.mockRejectedValue(new AgreelyValidationError("no english", { code: "english_text_missing", status: 422 }));
+    const kept = join(tmp, "kept-doc.pdf");
+    writeFileSync(kept, "previous");
+    await json("documents", "pdf", UUID, "--out", kept, "--force");
+    expect(readFileSync(kept, "utf8")).toBe("previous");
+    const fresh = join(tmp, "fresh-doc.pdf");
+    await json("documents", "pdf", UUID, "--out", fresh);
+    expect(existsSync(fresh)).toBe(false);
+  });
+
   it("a missing directory never reaches the SDK", async () => {
     expect((await json("documents", "pdf", UUID, "--out", join(tmp, "nope", "d.pdf"))).code).toBe(EXIT.USAGE);
     expect(h.docPdf).not.toHaveBeenCalled();

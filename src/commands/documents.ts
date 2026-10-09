@@ -78,6 +78,7 @@ export async function documentsPdfCommand(
   try {
     await writeAndClose(file, doc.pdf);
   } catch (err) {
+    await discardOutput(file, out);
     throw new UsageError(`Could not write ${out}: ${err instanceof Error ? err.message : String(err)}`);
   }
 

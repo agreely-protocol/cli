@@ -7,11 +7,13 @@
 // and cannot recover them later. A repeated Idempotency-Key is a 409 already_minted.
 //
 // The output file is opened BEFORE the sheet is minted (a missing directory, a directory
-// path or a read-only location fails while nothing exists yet, and a file this call
-// created is removed again if the mint fails). If the write STILL fails after the mint,
-// the printed reference and the claim are printed anyway (file: null) and the exit code
-// is 9: the sheet exists and a blind retry would mint a second one and retire this claim.
-// --out must be a regular file; an existing one needs --force.
+// path or a read-only location fails while nothing exists yet). Opening never truncates:
+// an existing file (with --force) keeps its content until the mint succeeded, and a file
+// this call created is removed again if the mint or the write fails, so a failed run
+// leaves nothing behind. If the write fails AFTER the mint, the printed reference and the
+// claim are printed anyway (file: null) and the exit code is 9: the sheet exists and a
+// blind retry would mint a second one and retire this claim. --out must be a regular
+// file, never the one stdout or stderr is redirected to; an existing one needs --force.
 //
 // TWO RULES, printed every time:
 //   - never send the claim link in the same envelope as the sheet;
@@ -71,6 +73,7 @@ export async function consentSheetCreateCommand(
   } catch (err) {
     writeError = err instanceof Error ? err.message : String(err);
     ctx.exit = EXIT.PARTIAL;
+    await discardOutput(file, out);
   }
 
   if (ctx.agent) {
