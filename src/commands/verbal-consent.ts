@@ -34,6 +34,7 @@ import {
   assertInstant,
   keyOrNew,
   need,
+  rawRef,
   oneOf,
   opt,
   splitPair,
@@ -85,7 +86,7 @@ export interface VerbalRecordFlags {
 }
 
 export async function verbalConsentRecordCommand(ctx: Context, flags: VerbalRecordFlags): Promise<void> {
-  const customerId = need(flags.customer, "--customer <id>");
+  const customerId = rawRef(flags.customer, "--customer <id>");
   const documentVersionId = need(flags.documentVersion, "--document-version <id>");
   const obtainedAt = assertInstant(need(flags.obtainedAt, "--obtained-at <instant>"), "--obtained-at");
   const obtainedBy = need(flags.obtainedBy, "--obtained-by <staff>");

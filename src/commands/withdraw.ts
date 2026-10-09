@@ -12,7 +12,7 @@ import type { ConsentWithdrawal, WithdrawalChannel } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { assertInstant, keyOrNew, need, oneOf, opt } from "../flags.js";
+import { assertInstant, keyOrNew, need, rawRef, oneOf, opt } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const CHANNELS = ["phone", "email", "mail", "in_person", "other"] as const satisfies readonly WithdrawalChannel[];
@@ -33,7 +33,7 @@ export async function withdrawCommand(
   consentRef: string,
   flags: WithdrawFlags,
 ): Promise<void> {
-  const customer = need(customerRef, "<customerRef>");
+  const customer = rawRef(customerRef, "<customerRef>");
   const ref = need(consentRef, "<consentRef>");
   if (!CONSENT_REF_RE.test(ref)) {
     throw new UsageError(`"${ref}" is not a valid consentRef (expected 64 hex characters, 0x prefix optional).`);

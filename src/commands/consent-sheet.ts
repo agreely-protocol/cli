@@ -24,7 +24,7 @@ import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
 import { EXIT } from "../errors.js";
-import { discardOutput, need, oneOf, opt, openOutput, writeAndClose } from "../flags.js";
+import { discardOutput, need, rawRef, oneOf, opt, openOutput, writeAndClose } from "../flags.js";
 import { emitJson, emitLine, note, pc } from "../output.js";
 
 export const SHEET_RULES = [
@@ -45,7 +45,7 @@ export async function consentSheetCreateCommand(
   customerRef: string,
   flags: ConsentSheetCreateFlags,
 ): Promise<void> {
-  const ref = need(customerRef, "<customerRef>");
+  const ref = rawRef(customerRef, "<customerRef>");
   const documentVersionId = need(flags.documentVersion, "--document-version <id>");
   const out = need(flags.out, "--out <file.pdf>");
   const locale = oneOf(opt(flags.locale) ?? "fr", ["fr", "en"] as const, "--locale");

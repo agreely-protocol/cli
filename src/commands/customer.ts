@@ -11,7 +11,7 @@ import type { CustomerRecord, RegistryBasis, UpsertCustomerInput, UpsertCustomer
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { need, oneOf } from "../flags.js";
+import { need, rawRef, oneOf } from "../flags.js";
 
 // The non-consent grounds of both acts the registry accepts (`consent` itself is refused).
 const LEGAL_BASES = [
@@ -45,7 +45,7 @@ function yn(b: boolean): string {
 }
 
 export async function customerGetCommand(ctx: Context, customerRef: string): Promise<void> {
-  const ref = need(customerRef, "<customerRef>");
+  const ref = rawRef(customerRef, "<customerRef>");
   const { client } = await buildClient(ctx);
   const record = await client.customers.get(ref);
   if (ctx.agent) {
@@ -69,7 +69,7 @@ export async function customerSetCommand(
   customerRef: string,
   flags: CustomerSetFlags,
 ): Promise<void> {
-  const ref = need(customerRef, "<customerRef>");
+  const ref = rawRef(customerRef, "<customerRef>");
   // One rule for every field: a flag that was NOT passed leaves the field untouched, a
   // flag whose trimmed value is empty CLEARS it (null), anything else writes it.
   const clearable = (value: string | undefined): string | null | undefined =>

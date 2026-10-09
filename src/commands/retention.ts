@@ -12,13 +12,13 @@ import type { CustomerRetention, DeclareDispositionInput, DeclaredDisposition } 
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { assertDate, need, oneOf, opt } from "../flags.js";
+import { assertDate, need, rawRef, oneOf, opt } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const DISPOSITIONS = ["destroyed", "anonymized", "legal_hold"] as const;
 
 export async function retentionShowCommand(ctx: Context, customerRef: string): Promise<void> {
-  const ref = need(customerRef, "<customerRef>");
+  const ref = rawRef(customerRef, "<customerRef>");
   const { client } = await buildClient(ctx);
   const r: CustomerRetention = await client.retention.getCustomerRetention(ref);
 
@@ -55,7 +55,7 @@ export async function retentionDisposeCommand(
   customerRef: string,
   flags: RetentionDisposeFlags,
 ): Promise<void> {
-  const ref = need(customerRef, "<customerRef>");
+  const ref = rawRef(customerRef, "<customerRef>");
   const disposition = oneOf(need(flags.disposition, "--disposition"), DISPOSITIONS, "--disposition");
   const reason = opt(flags.reason);
   const retentionUntil = opt(flags.retentionUntil);

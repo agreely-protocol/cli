@@ -19,6 +19,16 @@ export function need(value: string | undefined, name: string): string {
   return v;
 }
 
+/**
+ * A customer reference, passed through UNCHANGED. JS trim() strips Unicode spaces the
+ * server keeps, so trimming here could silently address a different customer. Only a
+ * missing or empty value is refused; the SDK rejects a blank one.
+ */
+export function rawRef(value: string | undefined, name: string): string {
+  if (value === undefined || value === "") throw new UsageError(`${name} is required.`);
+  return value;
+}
+
 /** An optional flag: trimmed, undefined when absent or blank. */
 export function opt(value: string | undefined): string | undefined {
   const v = value?.trim();

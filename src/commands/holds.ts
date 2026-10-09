@@ -18,7 +18,7 @@ import type { PlaceHoldInput, PlacedHold, ReleasedHold, RetentionHoldPage, Holds
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { assertDate, keyOrNew, need, oneOf, opt } from "../flags.js";
+import { assertDate, keyOrNew, need, rawRef, oneOf, opt } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const GROUNDS = ["rights_request", "other_law"] as const;
@@ -39,7 +39,7 @@ function checkDate(value: string | undefined, name: string): string | undefined 
 }
 
 export async function holdsPlaceCommand(ctx: Context, customerRef: string, flags: HoldsPlaceFlags): Promise<void> {
-  const ref = need(customerRef, "<customerRef>");
+  const ref = rawRef(customerRef, "<customerRef>");
   const ground = oneOf(need(flags.ground, "--ground"), GROUNDS, "--ground");
   const provision = opt(flags.provision);
   if (ground === "other_law" && provision === undefined) {
@@ -90,7 +90,7 @@ export async function holdsReleaseCommand(
   holdId: string,
   flags: HoldsReleaseFlags,
 ): Promise<void> {
-  const ref = need(customerRef, "<customerRef>");
+  const ref = rawRef(customerRef, "<customerRef>");
   const id = need(holdId, "<holdId>");
   const reason = need(flags.reason, '--reason "<text>"');
   const key = keyOrNew(flags.idempotencyKey);

@@ -617,3 +617,23 @@ describe("input validation shared across commands", () => {
     expect((await json("holds", "sync", "--max-pages", "0")).code).toBe(EXIT.USAGE);
   });
 });
+
+describe("customer references are passed through unchanged", () => {
+  it("a trailing non-breaking space is not trimmed away (it is a different customer)", async () => {
+    h.custGet.mockResolvedValue({ customerRef: "x" });
+    h.retGet.mockResolvedValue({ customerRef: "x", holds: [] });
+    h.withdraw.mockResolvedValue({ gate: "denied", alsoWithdrawn: [] });
+    const ref = "cust-42 ";
+    await json("customer", "get", ref);
+    await json("retention", "show", ref);
+    await json("withdraw", ref, CONSENT, "--channel", "mail", "--operator", "o");
+    expect(h.custGet).toHaveBeenCalledWith(ref);
+    expect(h.retGet).toHaveBeenCalledWith(ref);
+    expect(h.withdraw.mock.calls[0]?.[0]).toBe(ref);
+  });
+
+  it("an empty reference is still refused locally", async () => {
+    expect((await json("customer", "get", "")).code).toBe(EXIT.USAGE);
+    expect(h.custGet).not.toHaveBeenCalled();
+  });
+});

@@ -32,7 +32,7 @@ import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { parseItem } from "../create-input.js";
 import { readEvidence } from "../evidence.js";
-import { assertDate, keyOrNew } from "../flags.js";
+import { assertDate, keyOrNew, rawRef } from "../flags.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
@@ -88,8 +88,7 @@ export async function manualConsentCreateCommand(
 
 /** Build (and validate) the SDK record input, hashing the PDF locally. Throws UsageError. */
 async function buildRecordInput(flags: ManualConsentCreateFlags): Promise<RecordManualConsentInput> {
-  const customerId = flags.customer?.trim();
-  if (!customerId) throw new UsageError("--customer <id> is required.");
+  const customerId = rawRef(flags.customer, "--customer <id>");
 
   const documentVersionId = flags.documentVersion?.trim();
   if (!documentVersionId) throw new UsageError("--document-version <id> is required.");
@@ -128,8 +127,7 @@ export async function manualConsentClaimLinkCommand(
   ctx: Context,
   flags: ManualConsentClaimLinkFlags,
 ): Promise<void> {
-  const customerId = flags.customer?.trim();
-  if (!customerId) throw new UsageError("--customer <id> is required.");
+  const customerId = rawRef(flags.customer, "--customer <id>");
 
   const { client } = await buildClient(ctx, { write: true });
   const link: ClaimLink = await client.manualConsents.createClaimLink({

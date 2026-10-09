@@ -10,6 +10,7 @@ import type { RelationshipEnded } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
+import { rawRef } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 export interface RelationshipEndFlags {
@@ -21,10 +22,7 @@ export async function relationshipEndCommand(
   customerRef: string,
   flags: RelationshipEndFlags,
 ): Promise<void> {
-  const ref = customerRef?.trim();
-  if (!ref) {
-    throw new UsageError("<customerRef> is required.");
-  }
+  const ref = rawRef(customerRef, "<customerRef>");
   const reason = flags.reason?.trim();
   if (!reason) {
     throw new UsageError(
