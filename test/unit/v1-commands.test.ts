@@ -36,6 +36,8 @@ const h = vi.hoisted(() => ({
   docGet: vi.fn(),
   docPdf: vi.fn(),
   mRecord: vi.fn(),
+  catList: vi.fn(),
+  catDoc: vi.fn(),
 }));
 
 vi.mock("@agreely/sdk", async (importOriginal) => {
@@ -54,6 +56,7 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
     };
     manualConsents = { createConsentSheet: h.sheet, record: h.mRecord };
     consentDocuments = { list: h.docList, get: h.docGet, getInformationPdf: h.docPdf };
+    catalog = { list: h.catList, forDocument: h.catDoc };
     checkDetailed = h.checkDetailed;
   }
   return { ...actual, Agreely: FakeAgreely };
@@ -368,5 +371,20 @@ describe("manual-consent create attestations", () => {
     writeFileSync(pdf, "%PDF-1.4 m");
     await json("manual-consent", "create", "--customer", "c", "--document-version", UUID, "--effective-date", "2026-10-01", "--valid-until", "2027-10-01", "--pdf", pdf, "--sensitive-express-attested", "--version-attested");
     expect(h.mRecord.mock.calls[0]?.[0]).toMatchObject({ sensitiveExpressAttested: true, versionAttested: true });
+  });
+});
+
+describe("catalog --document", () => {
+  it("scopes to one document and prints the version id", async () => {
+    h.catDoc.mockResolvedValue({ regime: "P-39.1", document: { code: "D1", documentVersionId: UUID }, catalog: [{ id: "x" }] });
+    const r = await json("catalog", "--document", "D1");
+    expect(h.catDoc).toHaveBeenCalledWith("D1");
+    expect(r.out).toEqual({ regime: "P-39.1", document: { code: "D1", documentVersionId: UUID }, catalog: [{ id: "x" }] });
+  });
+
+  it("without the flag lists the whole catalog", async () => {
+    h.catList.mockResolvedValue([]);
+    expect((await json("catalog")).out).toEqual({ catalog: [] });
+    expect(h.catDoc).not.toHaveBeenCalled();
   });
 });

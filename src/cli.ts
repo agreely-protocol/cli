@@ -127,9 +127,12 @@ export async function run(
   );
 
   withGlobals(
-    program.command("catalog").description("List the company's declared active catalog"),
-  ).action(async (_o, cmd: Command) => {
-    await catalogCommand(ctxFor(cmd));
+    program
+      .command("catalog")
+      .description("List the company's declared active catalog")
+      .option("--document <code>", "only the active cells of one published document, with its documentVersionId"),
+  ).action(async (opts: { document?: string }, cmd: Command) => {
+    await catalogCommand(ctxFor(cmd), opts.document !== undefined ? { document: opts.document } : {});
   });
 
   withGlobals(
