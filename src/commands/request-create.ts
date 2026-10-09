@@ -105,7 +105,7 @@ async function runWizard(): Promise<CreateConsentRequestInput | null> {
   prompts.outro(pc.dim("Sending…"));
 
   return {
-    customerId: String(customer).trim(),
+    customerId: String(customer),
     recipientEmail: String(to).trim(),
     validUntil: String(validUntil).trim(),
     // A uuid-shaped reference is the version id; anything else is a code.

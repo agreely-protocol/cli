@@ -11,7 +11,7 @@
 
 import type { CreateConsentRequestInput, IssueItem } from "@agreely/sdk";
 import { UsageError } from "./errors.js";
-import { DATE_RE, splitPair } from "./flags.js";
+import { DATE_RE, rawRef, splitPair } from "./flags.js";
 
 export interface CreateFlags {
   customer?: string;
@@ -44,8 +44,7 @@ export function parseItem(raw: string): IssueItem {
 
 /** Build (and validate) the SDK input from the scriptable flags. Throws UsageError. */
 export function buildCreateInput(flags: CreateFlags): CreateConsentRequestInput {
-  const customerId = flags.customer?.trim();
-  if (!customerId) throw new UsageError("--customer <id> is required.");
+  const customerId = rawRef(flags.customer, "--customer <id>");
 
   const recipientEmail = flags.to?.trim();
   if (!recipientEmail) throw new UsageError("--to <email> is required.");

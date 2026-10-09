@@ -42,6 +42,11 @@ describe("buildCreateInput", () => {
     validUntil: "2030-01-01",
   };
 
+  it("passes the customer reference through untrimmed (a Unicode-space suffix is a different customer)", () => {
+    expect(buildCreateInput({ ...ok, customer: "cust-42\u00a0" }).customerId).toBe("cust-42\u00a0");
+    expect(() => buildCreateInput({ ...ok, customer: "" })).toThrow(UsageError);
+  });
+
   it("maps complete flags (--document) to a CreateConsentRequestInput", () => {
     expect(buildCreateInput(ok)).toEqual({
       customerId: "cust-1",
