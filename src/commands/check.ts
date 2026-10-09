@@ -100,7 +100,7 @@ async function singleMode(
     emitLine(
       ctx,
       `${pc.red("✗ DENY")}   ${pc.bold(customerId)} · ${category} / ${purpose}  ` +
-        `${pc.dim(`(${result.status})`)}`,
+        `${pc.dim(`(${result.status})`)}${proofLabel(proof)}`,
     );
   }
 
@@ -176,7 +176,7 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
         emitLine(
           ctx,
           `${pc.red("✗ DENY")}   ${pc.bold(d.customerRef)} · ${d.category} / ${d.purpose}  ` +
-            `${pc.dim(`(${d.status})`)}`,
+            `${pc.dim(`(${d.status})`)}${proofLabel(proofOf(d))}`,
         );
       }
     }
@@ -203,19 +203,28 @@ function declaredBasis(decision: CheckResult | BatchDecision): string | undefine
  * assurance are typed only from @agreely/sdk 0.4.0 onward, and this CLI still builds
  * against 0.3.0 (the SDK passes wire fields through verbatim either way).
  */
-function proofOf(decision: CheckResult | BatchDecision): { assurance?: string; tier?: string } {
-  const wire = decision as { assurance?: unknown; tier?: unknown };
+function proofOf(
+  decision: CheckResult | BatchDecision,
+): { assurance?: string; tier?: string; validUntil?: string; revokedAt?: string } {
+  const wire = decision as { assurance?: unknown; tier?: unknown; validUntil?: unknown; revokedAt?: unknown };
   return {
+    ...(typeof wire.validUntil === "string" && wire.validUntil !== "" ? { validUntil: wire.validUntil } : {}),
+    ...(typeof wire.revokedAt === "string" && wire.revokedAt !== "" ? { revokedAt: wire.revokedAt } : {}),
     ...(typeof wire.assurance === "string" && wire.assurance !== "" ? { assurance: wire.assurance } : {}),
     ...(typeof wire.tier === "string" && wire.tier !== "" ? { tier: wire.tier } : {}),
   };
 }
 
 /** The human rendering of the proof tier, e.g. " tier verbal (company_documented)", or "". */
-function proofLabel(proof: { assurance?: string; tier?: string }): string {
+function proofLabel(proof: { assurance?: string; tier?: string; validUntil?: string; revokedAt?: string }): string {
+  let label = "";
   if (proof.tier !== undefined) {
     const assurance = proof.assurance !== undefined ? ` (${proof.assurance})` : "";
-    return pc.dim(` tier ${proof.tier}${assurance}`);
+    label = pc.dim(` tier ${proof.tier}${assurance}`);
+  } else if (proof.assurance !== undefined) {
+    label = pc.dim(` ${proof.assurance}`);
   }
-  return proof.assurance !== undefined ? pc.dim(` ${proof.assurance}`) : "";
+  if (proof.validUntil !== undefined) label += pc.dim(` validUntil ${proof.validUntil}`);
+  if (proof.revokedAt !== undefined) label += pc.dim(` revokedAt ${proof.revokedAt}`);
+  return label;
 }

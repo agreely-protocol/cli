@@ -5,6 +5,7 @@ import {
   AgreelyAuthError,
   AgreelyBillingInactiveError,
   AgreelyConfigError,
+  AgreelyDailyCapError,
   AgreelyError,
   AgreelyNotFoundError,
   AgreelyRateLimitError,
@@ -34,6 +35,12 @@ export const EXIT = {
    * and fail-closed for gating (a lapsed biller never gets an allow).
    */
   BILLING_INACTIVE: 7,
+  /**
+   * A per-company DAILY cap (HTTP 429 withdrawal_daily_cap, verbal_daily_cap,
+   * hold_budget_exhausted, hold_release_cap_reached). DISTINCT from the per-minute
+   * window (5): retrying today cannot succeed, so an agent must not loop on it.
+   */
+  DAILY_CAP: 8,
   /** A clean check DENY — an expected negative, NOT an error. */
   DENY: 10,
 } as const;
@@ -56,6 +63,7 @@ export function exitCodeForError(err: unknown): number {
   if (isConflict(err)) return EXIT.USAGE;
   if (err instanceof AgreelyAuthError) return EXIT.AUTH;
   if (err instanceof AgreelyBillingInactiveError) return EXIT.BILLING_INACTIVE;
+  if (err instanceof AgreelyDailyCapError) return EXIT.DAILY_CAP;
   if (err instanceof AgreelyRateLimitError) return EXIT.RATE_LIMITED;
   if (err instanceof AgreelyTimeoutError) return EXIT.UNAVAILABLE;
   if (err instanceof AgreelyUnavailableError) return EXIT.UNAVAILABLE;
@@ -68,7 +76,11 @@ export function exitCodeForError(err: unknown): number {
 /** A stable string code for the stderr error envelope, derived from the error. */
 export function errorCodeFor(err: unknown): string {
   if (err instanceof UsageError) return "usage";
-  if (isConflict(err)) return "conflict";
+  if (isConflict(err)) {
+    // A specific code (identity_held, already_released, ...) is more useful than "conflict".
+    const code = (err as AgreelyError).code as string | undefined;
+    return code && code !== "unavailable" ? code : "conflict";
+  }
   if (
     err instanceof AgreelyAuthError ||
     err instanceof AgreelyValidationError ||
@@ -97,4 +109,14 @@ function isConflict(err: unknown): boolean {
 
 export function messageFor(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** The stable machine reason and offending field of an SDK error, when the server sent them. */
+export function detailFor(err: unknown): { reason?: string; field?: string } {
+  if (!(err instanceof AgreelyError)) return {};
+  const e = err as { reason?: unknown; field?: unknown };
+  return {
+    ...(typeof e.reason === "string" && e.reason !== "" ? { reason: e.reason } : {}),
+    ...(typeof e.field === "string" && e.field !== "" ? { field: e.field } : {}),
+  };
 }

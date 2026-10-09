@@ -4,7 +4,7 @@
 
 import pc from "picocolors";
 import type { Context } from "./context.js";
-import { errorCodeFor, messageFor } from "./errors.js";
+import { detailFor, errorCodeFor, EXIT, exitCodeForError, messageFor } from "./errors.js";
 
 /** Emit a single JSON document to stdout (the agent payload). */
 export function emitJson(ctx: Context, data: unknown): void {
@@ -28,10 +28,20 @@ export function note(ctx: Context, line: string): void {
 export function reportError(ctx: Context, err: unknown): void {
   const code = errorCodeFor(err);
   const message = messageFor(err);
+  const { reason, field } = detailFor(err);
   if (ctx.agent) {
-    ctx.io.stderr.write(JSON.stringify({ error: { code, message } }) + "\n");
+    ctx.io.stderr.write(
+      JSON.stringify({
+        error: { code, message, ...(reason !== undefined ? { reason } : {}), ...(field !== undefined ? { field } : {}) },
+      }) + "\n",
+    );
   } else {
     ctx.io.stderr.write(`${pc.red("✗")} ${pc.red(message)}\n`);
+    const parts = [`code ${code}`, ...(reason !== undefined ? [`reason ${reason}`] : []), ...(field !== undefined ? [`field ${field}`] : [])];
+    ctx.io.stderr.write(pc.dim(`  ${parts.join(", ")}`) + "\n");
+    if (exitCodeForError(err) === EXIT.DAILY_CAP) {
+      ctx.io.stderr.write(pc.dim("  A daily cap: retrying today cannot succeed. Do not loop on it.") + "\n");
+    }
   }
 }
 

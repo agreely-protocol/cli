@@ -20,8 +20,6 @@
 // refused by the server. An empty file is refused locally, and so is an uploaded file
 // that is not a PDF, because the server refuses both.
 
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import type {
   ClaimLink,
   IssueItem,
@@ -33,12 +31,12 @@ import type {
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { parseItem } from "../create-input.js";
+import { readEvidence } from "../evidence.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CONSENT_REF_RE = /^0x[0-9a-f]+$/i;
-const PDF_MAGIC = Buffer.from("%PDF-");
 
 export interface ManualConsentCreateFlags {
   customer?: string;
@@ -48,6 +46,8 @@ export interface ManualConsentCreateFlags {
   item?: string[];
   pdf?: string;
   upload?: boolean;
+  sensitiveExpressAttested?: boolean;
+  versionAttested?: boolean;
 }
 
 export async function manualConsentCreateCommand(
@@ -107,22 +107,7 @@ async function buildRecordInput(flags: ManualConsentCreateFlags): Promise<Record
   // May be empty: a sheet that answered "no" to every consent ask.
   const items: IssueItem[] = (flags.item ?? []).map(parseItem);
 
-  const pdfPath = flags.pdf?.trim();
-  if (!pdfPath) throw new UsageError("--pdf <path> is required (its SHA-256 is computed locally).");
-
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(pdfPath);
-  } catch {
-    throw new UsageError(`Could not read --pdf "${pdfPath}".`);
-  }
-  if (bytes.length === 0) {
-    throw new UsageError(`--pdf "${pdfPath}" is empty: hash the scanned signed sheet itself.`);
-  }
-  if (flags.upload && !bytes.subarray(0, 5).equals(PDF_MAGIC)) {
-    throw new UsageError(`--pdf "${pdfPath}" is not a PDF (no %PDF- header); the server refuses it on --upload.`);
-  }
-  const pdfSha256 = "0x" + createHash("sha256").update(bytes).digest("hex");
+  const evidence = await readEvidence(flags.pdf, flags.upload === true);
 
   return {
     customerId,
@@ -130,11 +115,9 @@ async function buildRecordInput(flags: ManualConsentCreateFlags): Promise<Record
     effectiveDate,
     validUntil,
     items,
-    evidence: {
-      pdfSha256,
-      // The bytes leave the machine ONLY on an explicit --upload.
-      ...(flags.upload ? { pdf: bytes.toString("base64") } : {}),
-    },
+    evidence,
+    ...(flags.sensitiveExpressAttested ? { sensitiveExpressAttested: true } : {}),
+    ...(flags.versionAttested ? { versionAttested: true } : {}),
   };
 }
 
