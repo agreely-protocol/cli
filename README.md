@@ -22,14 +22,9 @@ agreely --help
 
 ### Build from source (for local development)
 
-For now the CLI consumes the SDK via a local path (`file:../agreely-sdk/ts`).
-Check out the `agreely-sdk` repo as a **sibling** of this one and build its TS
-package first:
+The CLI depends on the published `@agreely/sdk` (`^0.5.0`):
 
 ```sh
-# siblings: ./agreely-cli and ./agreely-sdk
-(cd ../agreely-sdk/ts && npm install && npm run build)
-
 npm install && npm run build
 node dist/bin.js --help
 ```
@@ -65,14 +60,16 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | code | meaning |
 | --- | --- |
 | `0` | success / check **ALLOW** |
-| `2` | usage or validation error (bad/missing args, invalid input, no credentials), a `404`, or a `409` state conflict (envelope code is the specific code, else `conflict`) |
-| `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
-| `4` | **unavailable** - an Agreely outage (distinct from a deny) |
-| `5` | rate-limited - the per-company per-minute window was exceeded (retry after the delay) |
-| `8` | **daily cap** (HTTP 429 `withdrawal_daily_cap`, `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`). Not a rate window: retrying today cannot succeed, so do not loop on it |
-| `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
-| `10` | check **DENY** - a clean, expected negative, **not** an error |
 | `1` | an unexpected/uncategorized failure |
+| `2` | usage or validation error (bad/missing args, invalid input including a `413`, no credentials), a `404`, or a `409` state conflict (envelope code is the specific code, else `conflict`; `retry` means a concurrent retry could not be settled: retry with the same key) |
+| `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
+| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write the envelope carries `idempotencyKey`: retry with that SAME key |
+| `5` | rate-limited - the per-company per-minute window was exceeded (retry after the delay) |
+| `6` | `verify`: a receipt was checked and did **not** verify (a verdict, not an error) |
+| `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
+| `8` | **daily cap** (HTTP 429 `withdrawal_daily_cap`, `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`). Not a rate window: retrying today cannot succeed, so do not loop on it |
+| `9` | the write **succeeded** but its output could not be saved (`consent-sheet create`: the sheet was minted, the file could not be written). The reference and claim were still printed. Do **not** retry |
+| `10` | check **DENY** - a clean, expected negative, **not** an error |
 
 `check` resolves ALLOW→`0` and DENY→`10`. The CLI is **fail-closed**: on an
 outage the SDK throws and the CLI exits `4`, so a caller can tell "outage" from
@@ -94,9 +91,11 @@ agreely requests list [--customer <ref>] [--status pending|approved|asks_decline
 agreely request create [--customer <id> --to <email> (--document <versionId> | --document-code <code>) --valid-until <YYYY-MM-DD>] [--idempotency-key <k>] [--json]
 agreely request show <requestId> [--json]      # requestId is 0x + 64 hex
 agreely request cancel <requestId> [--json]    # cancel a pending request (idempotent)
-agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> [--item <catalogId|category:purpose> ...] --pdf <path> [--upload] [--json]
+agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> [--item <catalogId|category:purpose> ...] --pdf <path> [--upload] [--idempotency-key <k>] [--json]
 agreely manual-consent claim-link --customer <id> [--reference <ref>] [--json]
 agreely manual-consent revoke <consentRef> [--reason <text>] [--json]
+agreely manual-consent erase <consentRef> [--reason <text>] [--json]      # Law 25 art. 28.1
+agreely request wait <requestId> [--interval <ms>] [--timeout <ms>] [--json]   # poll until no longer pending; exit 4 on timeout
 agreely relationship end <customerRef> --reason <text> [--json]      # end a customer relationship (art. 23; idempotent)
 agreely relationship revert <customerRef> --reason <text> [--json]   # undo a mistaken end (art. 11 / art. 28 correction)
 agreely verbal-consent record|show|paper ...    # a consent given by telephone (see below)
@@ -208,6 +207,25 @@ Interactive (human) - run it with no flags at a TTY and a wizard collects the
 document reference, customer, recipient email, and valid-until, validates each,
 and confirms before issuing.
 
+### Writes: timeouts and retries
+
+Write commands get a 15 second budget (the SDK default of 800 ms is sized for the
+consent check). Every write sends an `Idempotency-Key`: yours (`--idempotency-key`),
+or one the CLI generates. If a write ends in a timeout or an outage (exit `4`), the
+error envelope carries `idempotencyKey`: retry with that **same** key and the server
+replays the first answer instead of writing twice (one hold, not two). A new key is a
+new write. `consent-sheet create` is the exception: its key is a latch, so a repeated
+key is a `409 already_minted`.
+
+### Dates, instants and `category:purpose`
+
+`--valid-until` is `YYYY-MM-DD`, or for verbal consents also an RFC 3339 instant with
+an offset. Instants (`--obtained-at`, `--signed-at`, `--requested-at`) must carry an
+offset or `Z`. `--item` and `--answer` write `category:purpose`, split on the **first**
+colon with both sides trimmed, so a category that itself contains a colon cannot be
+expressed that way: use the catalog id with `--item`. `--out` must be a regular file
+path: the PDF is never written to stdout (`/dev/stdout` is refused).
+
 ### `manual-consent`
 
 The offline (company-attested) path: record a consent you gathered out of band
@@ -289,8 +307,8 @@ agreely withdraw cust-42 0x… --channel phone --operator agent-7 --reason "aske
 # -> {"consentRef":"0x…","withdrawn":true,"alreadyWithdrawn":false,"recordedOnBehalf":true,"assurance":"company_attested","gate":"denied","alsoWithdrawn":[]}
 ```
 
-Read `gate` before telling anyone the use stopped. The daily cap (50 per 24 hours)
-exits `8`: record further withdrawals from the customer page in Agreely.
+Read `gate` before telling anyone the use stopped. The daily cap (50 per 24 hours by
+default; an operator can raise it) exits `8`: record further withdrawals from the customer page in Agreely.
 
 ### `customer`
 
@@ -307,11 +325,11 @@ agreely customer set cust-42 --email ""  # a merge: an absent flag is untouched,
 ```sh
 agreely retention show cust-42 --json
 agreely retention dispose cust-42 --disposition legal_hold --reason "Act X s. 12" --retention-until 2031-01-01
-agreely holds place cust-42 --ground other_law --provision "Act X s. 12" --rule r1 --cell <catalogId>
+agreely holds place cust-42 --ground other_law --provision "Act X s. 12" --rule <ruleKey> --cell <catalogId>
 agreely holds place cust-42 --ground rights_request          # no --rule/--cell: covers everything
 agreely holds release cust-42 <holdId> --reason "request closed"
 agreely holds list [--changed-since <cursor>] [--page-token <t>]   # ONE page
-agreely holds sync [--changed-since <cursor>]                      # EVERY page
+agreely holds sync [--changed-since <cursor>] [--max-pages <n>]    # EVERY page (default bound 1000)
 ```
 
 `dispose` needs the relationship to have ended (`409 relationship_active`); the
@@ -424,12 +442,11 @@ organization is compliant.
 ## Tests
 
 ```sh
-make cli-test       # fast offline unit suite (mock SDK + mock prompts)
-make cli-check      # build + lint + unit + the live contract suite
-make cli-contract   # seed a fixture from the live :8081 API, then the E2E suite
+npm test            # the offline unit suite (mock SDK + mock prompts)
+npm run typecheck && npm run lint && npm run build
+npm run test:contract   # drives the built bin against a live API (needs a fixture)
 ```
 
 The unit suite covers the exit-code map for every outcome, pure-JSON stdout,
 agent-mode-never-prompts, the auth precedence, and the raw flag→SDK input
-mapping. The contract suite drives the built bin as a real process against the
-live API (allow→0, revoke→deny→10, bad key→3, issuance + idempotency replay).
+mapping.

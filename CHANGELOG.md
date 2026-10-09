@@ -28,8 +28,14 @@ have these resources). Everything from the former Unreleased section ships here.
 - Every error envelope carries `reason` and `field` when the server sent them, and
   the human output prints `code`, `reason` and `field`.
 - **Exit code `8`** for a per-company daily cap (429 `withdrawal_daily_cap`,
-  `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`). It used
-  to fall in `5` with the per-minute window; a daily cap cannot succeed on retry.
+  `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`), distinct
+  from the per-minute window (`5`): a daily cap cannot succeed on retry.
+- **Exit code `9`**: the write succeeded but its output could not be saved
+  (`consent-sheet create`). The reference and claim are still printed; do not retry.
+- Every write sends an Idempotency-Key (yours, or one generated and printed in the
+  error envelope on a timeout or outage so the retry replays instead of writing
+  twice), with a 15 second time budget. `manual-consent create` gained
+  `--idempotency-key`; `holds sync` gained `--max-pages`.
 
 ### Changed
 
@@ -37,6 +43,14 @@ have these resources). Everything from the former Unreleased section ships here.
   `already_released`, `already_minted`, ...) and `conflict` only as a fallback. The
   exit code is unchanged (`2`).
 - Requires `@agreely/sdk` `^0.5.0`.
+- **HTTP 413 now exits `2`** (validation) instead of `4`: SDK 0.3.0 reported it as
+  Unavailable. It is reachable through `manual-consent create --upload` with a PDF
+  over the size limit.
+- `consent-sheet create` and `documents pdf` open `--out` before calling the API (a
+  missing directory or a directory path fails before anything is minted); a regular
+  file is required.
+- `--item` and `--answer` trim both sides of `category:purpose`.
+- Instants and dates are validated before any call.
 - `requests list --status` accepts `asks_declined`. `approved` no longer includes
   a request whose every ask was declined.
 - README: removed `sensitive_requires_consent` (no longer emitted since
@@ -54,7 +68,7 @@ have these resources). Everything from the former Unreleased section ships here.
 - **A `409` exited `4` as if Agreely were down.** SDK 0.3.0 surfaces a 409 as a
   non-retryable `AgreelyUnavailableError`. A 409 is a state conflict (a purpose
   held by a stronger active consent, a verbal consent still awaiting its paper, an
-  ended relationship), so it now exits `2` with envelope code `conflict`.
+  ended relationship), so it now exits `2` (its envelope code is the specific code, else `conflict`).
 - **`check` dropped `assurance`, and never showed the new `tier`.** Both are now
   passed through in `--json` (single and batch) and shown in human mode, including
   `company_documented` / `verbal` for a consent given by telephone.

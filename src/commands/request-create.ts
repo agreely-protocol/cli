@@ -73,7 +73,7 @@ async function runWizard(): Promise<CreateConsentRequestInput | null> {
   prompts.intro(pc.bold("Issue a consent request"));
 
   const documentRef = await prompts.text({
-    message: "Published consent document (version id or code — see Consent documents in the workspace)",
+    message: "Published consent document (version id or code, see Consent documents in the workspace)",
     validate: (v) => (v && v.trim() !== "" ? undefined : "Required: the request is issued under a published consent document."),
   });
   if (prompts.isCancel(documentRef)) return cancelled();

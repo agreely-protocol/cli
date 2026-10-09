@@ -84,7 +84,7 @@ async function loadDidDocs(paths: string[]): Promise<Record<string, DidDocument>
       throw new UsageError(`Could not read or parse the DID document file "${p}".`);
     }
     if (typeof doc.id !== "string" || doc.id === "") {
-      throw new UsageError(`The DID document "${p}" has no "id" — it cannot be resolved by DID.`);
+      throw new UsageError(`The DID document "${p}" has no "id": it cannot be resolved by DID.`);
     }
     docs[doc.id] = doc;
   }
@@ -111,7 +111,7 @@ function printMatrix(ctx: Context, r: ReceiptVerification): void {
     emitLine(
       ctx,
       `  ${pc.yellow("!")} UNVERIFIABLE: a DID could not be resolved, so verification could not complete. ` +
-        "This is NOT a forgery — retry with connectivity, or pass --did-doc <file> to verify air-gapped.",
+        "This is NOT a forgery: retry with connectivity, or pass --did-doc <file> to verify air-gapped.",
     );
     emitLine(ctx, "");
   }
