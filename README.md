@@ -210,7 +210,7 @@ and confirms before issuing.
 ### Writes: timeouts and retries
 
 Write commands get a 15 second budget (the SDK default of 800 ms is sized for the
-consent check) and reads get 5 seconds. These commands send an `Idempotency-Key`,
+consent check) and reads get 5 seconds (except `check`, which keeps the SDK's 800 ms). These commands send an `Idempotency-Key`,
 yours (`--idempotency-key`) or one the CLI generates: `request create` (which emails a
 person), `manual-consent create`, `verbal-consent record` and `paper`, `withdraw`,
 `holds place` and `holds release`. If one of them ends in a timeout or an outage (exit

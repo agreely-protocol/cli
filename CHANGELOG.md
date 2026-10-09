@@ -36,7 +36,7 @@ have these resources). Everything from the former Unreleased section ships here.
   and `holds place|release` send an Idempotency-Key (yours, or one generated and printed
   in the error envelope on a timeout, an outage or a `409 retry`, so the retry replays
   instead of writing twice, or emailing a second time). Writes get a 15 second time
-  budget and reads 5 seconds. `manual-consent create` gained `--idempotency-key`;
+  budget and reads 5 seconds (except `check`, which keeps the SDK's 800 ms). `manual-consent create` gained `--idempotency-key`;
   `holds sync` gained `--max-pages`.
 
 ### Changed
