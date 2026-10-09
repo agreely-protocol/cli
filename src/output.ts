@@ -30,7 +30,10 @@ export function reportError(ctx: Context, err: unknown): void {
   const message = messageFor(err);
   const { reason, field } = detailFor(err);
   // A timeout or outage on a write may or may not have landed: say which key to retry with.
-  const retry = ctx.retryKey !== undefined && exitCodeForError(err) === EXIT.UNAVAILABLE ? { idempotencyKey: ctx.retryKey } : {};
+  const retry =
+    ctx.retryKey !== undefined && (exitCodeForError(err) === EXIT.UNAVAILABLE || code === "retry")
+      ? { idempotencyKey: ctx.retryKey }
+      : {};
   if (ctx.agent) {
     ctx.io.stderr.write(
       JSON.stringify({

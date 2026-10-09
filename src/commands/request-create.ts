@@ -18,7 +18,7 @@ import type { CreateConsentRequestInput, IssuedRequest } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { buildCreateInput, type CreateFlags } from "../create-input.js";
-import { DATE_RE } from "../flags.js";
+import { DATE_RE, keyOrNew } from "../flags.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
@@ -33,6 +33,8 @@ function hasScriptableFlags(flags: CreateCommandFlags): boolean {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function requestCreateCommand(ctx: Context, flags: CreateCommandFlags): Promise<void> {
+  const key = keyOrNew(flags.idempotencyKey);
+  ctx.retryKey = key;
   const { client } = await buildClient(ctx, { write: true });
 
   let input: CreateConsentRequestInput;
@@ -46,10 +48,8 @@ export async function requestCreateCommand(ctx: Context, flags: CreateCommandFla
     input = collected;
   }
 
-  const created: IssuedRequest = await client.consentRequests.create(
-    input,
-    flags.idempotencyKey ? { idempotencyKey: flags.idempotencyKey } : {},
-  );
+  // This write EMAILS a person: a retry after a timeout must replay, never send a second email.
+  const created: IssuedRequest = await client.consentRequests.create(input, { idempotencyKey: key });
 
   if (ctx.agent) {
     emitJson(ctx, created);

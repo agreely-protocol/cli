@@ -32,10 +32,12 @@ have these resources). Everything from the former Unreleased section ships here.
   from the per-minute window (`5`): a daily cap cannot succeed on retry.
 - **Exit code `9`**: the write succeeded but its output could not be saved
   (`consent-sheet create`). The reference and claim are still printed; do not retry.
-- Every write sends an Idempotency-Key (yours, or one generated and printed in the
-  error envelope on a timeout or outage so the retry replays instead of writing
-  twice), with a 15 second time budget. `manual-consent create` gained
-  `--idempotency-key`; `holds sync` gained `--max-pages`.
+- `request create`, `manual-consent create`, `verbal-consent record|paper`, `withdraw`
+  and `holds place|release` send an Idempotency-Key (yours, or one generated and printed
+  in the error envelope on a timeout, an outage or a `409 retry`, so the retry replays
+  instead of writing twice, or emailing a second time). Writes get a 15 second time
+  budget and reads 5 seconds. `manual-consent create` gained `--idempotency-key`;
+  `holds sync` gained `--max-pages`.
 
 ### Changed
 

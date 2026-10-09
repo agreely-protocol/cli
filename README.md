@@ -63,7 +63,7 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | `1` | an unexpected/uncategorized failure |
 | `2` | usage or validation error (bad/missing args, invalid input including a `413`, no credentials), a `404`, or a `409` state conflict (envelope code is the specific code, else `conflict`; `retry` means a concurrent retry could not be settled: retry with the same key) |
 | `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
-| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write the envelope carries `idempotencyKey`: retry with that SAME key |
+| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write that takes a key (see Writes) the envelope carries `idempotencyKey`: retry with that SAME key |
 | `5` | rate-limited - the per-company per-minute window was exceeded (retry after the delay) |
 | `6` | `verify`: a receipt was checked and did **not** verify (a verdict, not an error) |
 | `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
@@ -210,12 +210,16 @@ and confirms before issuing.
 ### Writes: timeouts and retries
 
 Write commands get a 15 second budget (the SDK default of 800 ms is sized for the
-consent check). Every write sends an `Idempotency-Key`: yours (`--idempotency-key`),
-or one the CLI generates. If a write ends in a timeout or an outage (exit `4`), the
-error envelope carries `idempotencyKey`: retry with that **same** key and the server
+consent check) and reads get 5 seconds. These commands send an `Idempotency-Key`,
+yours (`--idempotency-key`) or one the CLI generates: `request create` (which emails a
+person), `manual-consent create`, `verbal-consent record` and `paper`, `withdraw`,
+`holds place` and `holds release`. If one of them ends in a timeout or an outage (exit
+`4`), or in a `409` with code `retry`, the error envelope carries `idempotencyKey`: retry with that **same** key and the server
 replays the first answer instead of writing twice (one hold, not two). A new key is a
 new write. `consent-sheet create` is the exception: its key is a latch, so a repeated
-key is a `409 already_minted`.
+key is a `409 already_minted`. The other writes (`customer set`, `retention dispose`,
+`relationship end|revert`, `manual-consent claim-link|revoke|erase`, `request cancel`)
+send no key of their own and print none.
 
 ### Dates, instants and `category:purpose`
 
