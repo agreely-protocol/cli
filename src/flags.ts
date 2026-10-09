@@ -9,8 +9,14 @@ import { UsageError } from "./errors.js";
 
 /** YYYY-MM-DD. Whether the date is real is the server's call. */
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-/** An RFC 3339 instant WITH an offset (or Z), as the SDK requires. */
-export const INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/i;
+/**
+ * An RFC 3339 instant WITH an offset, exactly the SDK's rule (its util.ts, not exported):
+ * seconds required, at most 6 fractional digits, uppercase T and Z. If the SDK's rule
+ * changes, this must follow.
+ */
+export const INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
+/** A consentRef as the SDK accepts it: 64 hex characters, the 0x prefix optional. */
+export const CONSENT_REF_RE = /^(?:0[xX])?[0-9a-fA-F]{64}$/;
 
 /** A required flag or argument: trimmed, and a UsageError (exit 2) when blank. */
 export function need(value: string | undefined, name: string): string {

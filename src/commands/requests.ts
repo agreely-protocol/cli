@@ -13,8 +13,7 @@ import { emitJson, emitLine, note, pc } from "../output.js";
 
 // "asks_declined" is a request the person answered by declining EVERY consent ask (only
 // the lines given for information were acknowledged): no consent was obtained, so the
-// server never returns it under "approved". Typed as string because the value joined
-// ConsentRequestStatus only in @agreely/sdk 0.4.0.
+// server never returns it under "approved".
 const STATUSES: readonly string[] = [
   "pending",
   "approved",

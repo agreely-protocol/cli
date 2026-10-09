@@ -32,11 +32,10 @@ import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { parseItem } from "../create-input.js";
 import { readEvidence } from "../evidence.js";
-import { assertDate, keyOrNew, rawRef } from "../flags.js";
+import { CONSENT_REF_RE, assertDate, keyOrNew, rawRef } from "../flags.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
-const CONSENT_REF_RE = /^0x[0-9a-f]+$/i;
 
 export interface ManualConsentCreateFlags {
   customer?: string;
@@ -156,7 +155,7 @@ export async function manualConsentRevokeCommand(
   flags: ManualConsentRevokeFlags,
 ): Promise<void> {
   if (!CONSENT_REF_RE.test(consentRef)) {
-    throw new UsageError(`"${consentRef}" is not a valid consentRef (expected 0x + hex).`);
+    throw new UsageError(`"${consentRef}" is not a valid consentRef (expected 64 hex characters, 0x prefix optional).`);
   }
 
   const { client } = await buildClient(ctx, { write: true });
@@ -187,7 +186,7 @@ export async function manualConsentEraseCommand(
   flags: ManualConsentEraseFlags,
 ): Promise<void> {
   if (!CONSENT_REF_RE.test(consentRef)) {
-    throw new UsageError(`"${consentRef}" is not a valid consentRef (expected 0x + hex).`);
+    throw new UsageError(`"${consentRef}" is not a valid consentRef (expected 64 hex characters, 0x prefix optional).`);
   }
 
   const { client } = await buildClient(ctx, { write: true });

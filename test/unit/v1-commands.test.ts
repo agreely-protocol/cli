@@ -579,6 +579,13 @@ describe("input validation shared across commands", () => {
     expect(h.vRecord).not.toHaveBeenCalled();
   });
 
+  it("instants follow the SDK rule: seconds required, uppercase T and Z, at most 6 fractional digits", async () => {
+    for (const bad of ["2026-10-09T10:00-04:00", "2026-10-09t10:00:00z", "2026-10-09T10:00:00.1234567Z"]) {
+      expect((await json(...swap("--obtained-at", bad))).code).toBe(EXIT.USAGE);
+    }
+    expect(h.vRecord).not.toHaveBeenCalled();
+  });
+
   it("validates --capacity against its list and ties it to a representative", async () => {
     expect((await json(...rec, "--capacity", "tutelle")).code).toBe(EXIT.USAGE);
     expect((await json(...swap("--consented-by", "representative"))).code).toBe(EXIT.USAGE);

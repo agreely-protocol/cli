@@ -347,7 +347,7 @@ export async function run(
     manualConsent
       .command("revoke")
       .description("Revoke a manual consent by its 0x-hex consentRef")
-      .argument("<consentRef>", "the protocol consentRef (0x + hex)")
+      .argument("<consentRef>", "the consentRef (64 hex, 0x prefix optional)")
       .option("--reason <text>", "an optional operator reason recorded with the revocation"),
   ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
     await manualConsentRevokeCommand(ctxFor(cmd), consentRef, {
@@ -359,7 +359,7 @@ export async function run(
     manualConsent
       .command("erase")
       .description("Erase a manual consent by its 0x-hex consentRef (Law 25 art. 28.1)")
-      .argument("<consentRef>", "the protocol consentRef (0x + hex)")
+      .argument("<consentRef>", "the consentRef (64 hex, 0x prefix optional)")
       .option("--reason <text>", "an optional operator reason recorded with the erasure"),
   ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
     await manualConsentEraseCommand(ctxFor(cmd), consentRef, {

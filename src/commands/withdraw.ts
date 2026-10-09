@@ -8,16 +8,14 @@
 // (429 withdrawal_daily_cap) is NOT a rate window: do not retry (exit 8). An
 // Idempotency-Key is generated when none is given and printed if the call times out.
 
-import type { ConsentWithdrawal, WithdrawalChannel } from "@agreely/sdk";
+import { WITHDRAWAL_CHANNELS } from "@agreely/sdk";
+import type { ConsentWithdrawal } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { assertInstant, keyOrNew, need, rawRef, oneOf, opt } from "../flags.js";
+import { CONSENT_REF_RE, assertInstant, keyOrNew, need, rawRef, oneOf, opt } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
-const CHANNELS = ["phone", "email", "mail", "in_person", "other"] as const satisfies readonly WithdrawalChannel[];
-// Exactly what the SDK accepts: 64 hex characters, the 0x prefix optional.
-const CONSENT_REF_RE = /^(?:0[xX])?[0-9a-fA-F]{64}$/;
 
 export interface WithdrawFlags {
   channel?: string;
@@ -38,7 +36,7 @@ export async function withdrawCommand(
   if (!CONSENT_REF_RE.test(ref)) {
     throw new UsageError(`"${ref}" is not a valid consentRef (expected 64 hex characters, 0x prefix optional).`);
   }
-  const channel = oneOf(need(flags.channel, "--channel"), CHANNELS, "--channel");
+  const channel = oneOf(need(flags.channel, "--channel"), WITHDRAWAL_CHANNELS, "--channel");
   const operator = need(flags.operator, "--operator <id>");
   const requestedAtFlag = opt(flags.requestedAt);
   const requestedAt = requestedAtFlag !== undefined ? assertInstant(requestedAtFlag, "--requested-at") : undefined;

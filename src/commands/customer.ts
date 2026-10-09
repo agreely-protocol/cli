@@ -11,10 +11,10 @@ import type { CustomerRecord, RegistryBasis, UpsertCustomerInput, UpsertCustomer
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { UsageError } from "../errors.js";
-import { need, rawRef, oneOf } from "../flags.js";
+import { oneOf, rawRef } from "../flags.js";
 
 // The non-consent grounds of both acts the registry accepts (`consent` itself is refused).
-const LEGAL_BASES = [
+export const LEGAL_BASES = [
   "contract",
   "necessary_for_service",
   "security_fraud",
