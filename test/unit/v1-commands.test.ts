@@ -41,6 +41,7 @@ const h = vi.hoisted(() => ({
   catList: vi.fn(),
   catDoc: vi.fn(),
   ctor: vi.fn(),
+  reqCreate: vi.fn(),
   failWrite: { on: false },
 }));
 
@@ -60,6 +61,7 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
     };
     manualConsents = { createConsentSheet: h.sheet, record: h.mRecord };
     consentDocuments = { list: h.docList, get: h.docGet, getInformationPdf: h.docPdf };
+    consentRequests = { create: h.reqCreate };
     catalog = { list: h.catList, forDocument: h.catDoc };
     checkDetailed = h.checkDetailed;
     constructor(opts: unknown) {
@@ -511,13 +513,17 @@ describe("documents pdf opens its file first", () => {
 });
 
 describe("writes: timeout, retry key, no global flags in the request", () => {
-  it("a write client gets a 15 s budget, a read client keeps the default", async () => {
+  it("a write client gets 15 s, a read 5 s, and check keeps the SDK default", async () => {
     h.withdraw.mockResolvedValue({ gate: "denied", alsoWithdrawn: [] });
     await json("withdraw", "c1", CONSENT, "--channel", "phone", "--operator", "o");
     expect(h.ctor.mock.calls[0]?.[0]).toMatchObject({ timeout: 15000 });
     h.ctor.mockReset();
     h.custGet.mockResolvedValue({ customerRef: "c1" });
     await json("customer", "get", "c1");
+    expect(h.ctor.mock.calls[0]?.[0]).toMatchObject({ timeout: 5000 });
+    h.ctor.mockReset();
+    h.checkDetailed.mockResolvedValue({ decision: "allow", status: "active", checkedAt: "t" });
+    await json("check", "c", "Cat", "Pur");
     expect(h.ctor.mock.calls[0]?.[0]).not.toHaveProperty("timeout");
   });
 
@@ -528,6 +534,14 @@ describe("writes: timeout, retry key, no global flags in the request", () => {
     const sent = (h.holdPlace.mock.calls[0] as [string, unknown, { idempotencyKey: string }])[2].idempotencyKey;
     expect(sent).toMatch(/^[0-9a-f-]{36}$/);
     expect(JSON.parse(r.err.trim()).error.idempotencyKey).toBe(sent);
+  });
+
+  it("request create sends and prints a key too, and a 409 retry prints it", async () => {
+    h.reqCreate.mockRejectedValue(new AgreelyConflictError("in flight", { code: "retry", status: 409 }));
+    const r = await json("request", "create", "--customer", "c1", "--to", "a@b.co", "--document", UUID, "--valid-until", "2027-01-01");
+    const sent = (h.reqCreate.mock.calls[0] as [unknown, { idempotencyKey: string }])[1].idempotencyKey;
+    expect(sent).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.parse(r.err.trim()).error).toMatchObject({ code: "retry", idempotencyKey: sent });
   });
 
   it("a user-given key is the one sent and printed", async () => {

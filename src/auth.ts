@@ -57,22 +57,24 @@ export async function resolveAuth(ctx: Context): Promise<ResolvedAuth> {
   return { apiKey, baseUrl, apiKeySource };
 }
 
-/** Build a configured SDK client from the resolved auth. */
 /**
- * The time budget of a write, in ms. The SDK default (800 ms) is sized for the consent
- * check on a request path; a write that is cut off may or may not have landed, so writes
- * get a sane budget and a retry key (see `writeKey`).
+ * Time budgets, in ms. The SDK default (800 ms) is sized for the consent check on a
+ * request path, so `check` keeps it. A read that is not a check gets a few seconds; a
+ * write that is cut off may or may not have landed, so writes get longer and, where the
+ * command takes one, an Idempotency-Key to retry with.
  */
+export const READ_TIMEOUT_MS = 5_000;
 export const WRITE_TIMEOUT_MS = 15_000;
 
+/** Build a configured SDK client from the resolved auth. `check: true` keeps the SDK's own check budget. */
 export async function buildClient(
   ctx: Context,
-  opts: { write?: boolean } = {},
+  opts: { write?: boolean; check?: boolean } = {},
 ): Promise<{ client: Agreely; auth: ResolvedAuth }> {
   const auth = await resolveAuth(ctx);
   const client = new Agreely({
     apiKey: auth.apiKey,
-    ...(opts.write ? { timeout: WRITE_TIMEOUT_MS } : {}),
+    ...(opts.check ? {} : { timeout: opts.write ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS }),
     ...(auth.baseUrl !== undefined ? { baseUrl: auth.baseUrl } : {}),
   });
   return { client, auth };

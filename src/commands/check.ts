@@ -73,7 +73,7 @@ async function singleMode(
       { code: "invalid_request", status: 422 },
     );
   }
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { check: true });
   const result: CheckResult = await client.checkDetailed(customerId, category, purpose);
   const allowed = result.decision === "allow";
 
@@ -142,7 +142,7 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
     );
   }
 
-  const { client } = await buildClient(ctx);
+  const { client } = await buildClient(ctx, { check: true });
   const decisions: BatchDecision[] = await client.checkBatch(items);
 
   const anyDeny = decisions.some((d) => d.decision === "deny");
