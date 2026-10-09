@@ -4,7 +4,7 @@
 // published today (an intake form and the version to record against, in one call).
 // Never decide consent from the catalog: only `check` says what a person consented to.
 
-import type { CatalogEntry } from "@agreely/sdk";
+import type { CatalogEntry, DocumentCatalog } from "@agreely/sdk";
 import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { emitJson, emitLine, note, pc } from "../output.js";
@@ -13,7 +13,7 @@ export async function catalogCommand(ctx: Context, flags: { document?: string } 
   const { client } = await buildClient(ctx);
   const documentCode = flags.document?.trim();
   let entries: CatalogEntry[];
-  let scoped: { regime: string; document: { code: string; documentVersionId: string } } | undefined;
+  let scoped: Pick<DocumentCatalog, "regime" | "document"> | undefined;
   if (documentCode) {
     const doc = await client.catalog.forDocument(documentCode);
     entries = doc.catalog;
@@ -27,7 +27,7 @@ export async function catalogCommand(ctx: Context, flags: { document?: string } 
     return;
   }
   if (scoped) {
-    emitLine(ctx, `${pc.bold(scoped.document.code)}  documentVersionId ${scoped.document.documentVersionId}  ${pc.dim(`regime ${scoped.regime}`)}`);
+    emitLine(ctx, `${pc.bold(scoped.document.code)}  documentVersionId ${scoped.document.documentVersionId}  ${pc.dim(`regime ${JSON.stringify(scoped.regime)}`)}`);
   }
 
   if (entries.length === 0) {
