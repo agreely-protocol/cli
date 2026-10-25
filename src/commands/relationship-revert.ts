@@ -1,6 +1,6 @@
 // agreely relationship revert <customerRef> --reason "..." [--json]
 // Undoes a mistaken company end of a customer relationship (Law 25 art. 11 / art. 28
-// correction of an inaccurate record) — NOT a resurrection of dead consent. Scope:
+// correction of an inaccurate record), NOT a resurrection of dead consent. Scope:
 // 'relationship'. The customerRef is the company's OWN reference (the same ref used
 // by `check`), never a DID. --reason is REQUIRED and enforced BEFORE any network
 // call: a missing reason is a usage error (exit 2), never a silent revert. Errors

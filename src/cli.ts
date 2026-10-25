@@ -51,7 +51,7 @@ import { EXIT, exitCodeForError } from "./errors.js";
 import { defaultIo, type Io } from "./io.js";
 import { reportError } from "./output.js";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 
 /** Attach the shared auth/output flags so they work before OR after a subcommand. */
 function withGlobals(cmd: Command): Command {
@@ -244,19 +244,24 @@ export async function run(
     });
   });
 
-  // The headline: offline-first receipt verification with an honest pass/trust
-  // matrix (exit 6 = a real tamper; exit 4 = a DID could not be resolved).
+  // The headline: offline-first verification with an honest pass/trust matrix
+  // (exit 6 = a real tamper or a malformed file; 4 = a check could not complete; 11 = a bare passkey receipt).
   withGlobals(
     program
       .command("verify")
-      .description("Verify a consent receipt offline-first; prints the honesty matrix (exit 6 tamper, 4 unresolvable)")
-      .argument("<receipt.json>", "path to the receipt VC JSON file")
+      .description(
+        "Verify a consent offline-first from its verification bundle or a receipt; prints the honesty matrix " +
+          "(exit 6 tamper or malformed file, 4 unresolvable or an asked-for check incomplete, " +
+          "11 bare passkey receipt: verify the bundle)",
+      )
+      .argument("<file.json>", "path to the verification bundle (or receipt VC) JSON file")
       .option("--ipfs", "also fetch + compare the IPFS disclosure copy (opt-in network)")
-      .option("--onchain", "also check the on-chain document anchor (needs --rpc-url / AGREELY_RPC_URL)")
+      .option("--onchain", "also check the on-chain document and consent anchors (needs --rpc-url / AGREELY_RPC_URL)")
       .option("--rpc-url <url>", "JSON-RPC URL for the --onchain check")
       .option(
         "--did-doc <file>",
-        "resolve DIDs from a local DID document file (repeatable) for an air-gapped verify",
+        "resolve DIDs from a local DID document file (repeatable) for an air-gapped verify; trusted as given, " +
+          "so never take it out of the file under test",
         collect,
         [] as string[],
       ),
@@ -348,10 +353,12 @@ export async function run(
       .command("revoke")
       .description("Revoke a manual consent by its 0x-hex consentRef")
       .argument("<consentRef>", "the consentRef (64 hex, 0x prefix optional)")
-      .option("--reason <text>", "an optional operator reason recorded with the revocation"),
-  ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
+      .option("--reason <text>", "an optional operator reason recorded with the revocation")
+      .option("--other-consents <scope>", "keep: end this record while a passkey consent keeps the purpose in force (withdraw is refused like no declaration)"),
+  ).action(async (consentRef: string, opts: { reason?: string; otherConsents?: string }, cmd: Command) => {
     await manualConsentRevokeCommand(ctxFor(cmd), consentRef, {
       ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+      ...(opts.otherConsents !== undefined ? { otherConsents: opts.otherConsents } : {}),
     });
   });
 
@@ -360,10 +367,12 @@ export async function run(
       .command("erase")
       .description("Erase a manual consent by its 0x-hex consentRef (Law 25 art. 28.1)")
       .argument("<consentRef>", "the consentRef (64 hex, 0x prefix optional)")
-      .option("--reason <text>", "an optional operator reason recorded with the erasure"),
-  ).action(async (consentRef: string, opts: { reason?: string }, cmd: Command) => {
+      .option("--reason <text>", "an optional operator reason recorded with the erasure")
+      .option("--other-consents <scope>", "keep: end this record while a passkey consent keeps the purpose in force (withdraw is refused like no declaration)"),
+  ).action(async (consentRef: string, opts: { reason?: string; otherConsents?: string }, cmd: Command) => {
     await manualConsentEraseCommand(ctxFor(cmd), consentRef, {
       ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+      ...(opts.otherConsents !== undefined ? { otherConsents: opts.otherConsents } : {}),
     });
   });
 
@@ -464,6 +473,8 @@ export async function run(
       .option("--operator <id>", "your opaque id of the staff member who received the request (never an email)")
       .option("--requested-at <instant>", "when the person asked (RFC 3339 with an offset)")
       .option("--reason <text>", "an optional reason (at most 1000 characters)")
+      .option("--other-consents <scope>", "withdraw | keep: the other consents of the purpose in force, all withdrawn or all kept")
+      .option("--also-withdraw <refs>", "the other consents to withdraw with it, comma-separated consentRefs (at most 50; repeatable; not with --other-consents)", (v: string, prev?: string[]) => [...(prev ?? []), v])
       .option("--idempotency-key <key>", "reuse to make a retry safe"),
   ).action(async (customerRef: string, consentRef: string, opts: WithdrawFlags, cmd: Command) => {
     await withdrawCommand(ctxFor(cmd), customerRef, consentRef, defined(opts));

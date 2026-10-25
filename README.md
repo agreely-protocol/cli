@@ -59,17 +59,18 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 
 | code | meaning |
 | --- | --- |
-| `0` | success / check **ALLOW** |
+| `0` | success / check **ALLOW** / `verify`: a bundle or a paper receipt reads `verified`, or a telephone receipt reads `partial` (the organisation's signed word, sound). Never for a bare passkey receipt |
 | `1` | an unexpected/uncategorized failure |
 | `2` | usage or validation error (bad/missing args, invalid input including a `413`, no credentials), a `404`, or a `409` state conflict (envelope code is the specific code, else `conflict`; `retry` means a concurrent retry could not be settled: retry with the same key) |
 | `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
-| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write that takes a key (see Writes) the envelope carries `idempotencyKey`: retry with that SAME key |
+| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write that takes a key (see Writes) the envelope carries `idempotencyKey`: retry with that SAME key. `verify`: a check could not complete (a DID could not be resolved), or a check you asked for with `--onchain` or `--ipfs` could not complete, even when everything else verified |
 | `5` | rate-limited - the per-company per-minute window was exceeded (retry after the delay) |
-| `6` | `verify`: a receipt was checked and did **not** verify (a verdict, not an error) |
+| `6` | `verify`: a bundle or receipt was checked and did **not** verify (a verdict, not an error), or the file is **malformed** (JSON that is not a version `"1"` bundle or a receipt this verifier can read, so no check ran: the matrix says `MALFORMED`, never a tamper). A file that is not JSON exits `2` |
 | `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
 | `8` | **daily cap** (HTTP 429 `withdrawal_daily_cap`, `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`). Not a rate window: retrying today cannot succeed, so do not loop on it |
 | `9` | the write **succeeded** but its output could not be saved (`consent-sheet create`: the sheet was minted, the file could not be written). The reference and claim were still printed. Do **not** retry |
 | `10` | check **DENY** - a clean, expected negative, **not** an error |
+| `11` | `verify`: **incomplete** - a bare passkey receipt cannot be tied to the offer it answers. Verify the consent bundle (receipt + signed offer) instead. Not a tamper, never a success |
 
 `check` resolves ALLOW→`0` and DENY→`10`. The CLI is **fail-closed**: on an
 outage the SDK throws and the CLI exits `4`, so a caller can tell "outage" from
@@ -93,18 +94,19 @@ agreely request show <requestId> [--json]      # requestId is 0x + 64 hex
 agreely request cancel <requestId> [--json]    # cancel a pending request (idempotent)
 agreely manual-consent create --customer <id> --document-version <id> --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD> [--item <catalogId|category:purpose> ...] --pdf <path> [--upload] [--idempotency-key <k>] [--json]
 agreely manual-consent claim-link --customer <id> [--reference <ref>] [--json]
-agreely manual-consent revoke <consentRef> [--reason <text>] [--json]
-agreely manual-consent erase <consentRef> [--reason <text>] [--json]      # Law 25 art. 28.1
+agreely manual-consent revoke <consentRef> [--reason <text>] [--other-consents keep|withdraw] [--json]
+agreely manual-consent erase <consentRef> [--reason <text>] [--other-consents keep|withdraw] [--json]      # Law 25 art. 28.1
 agreely request wait <requestId> [--interval <ms>] [--timeout <ms>] [--json]   # poll until no longer pending; exit 4 on timeout
 agreely relationship end <customerRef> --reason <text> [--json]      # end a customer relationship (art. 23; idempotent)
 agreely relationship revert <customerRef> --reason <text> [--json]   # undo a mistaken end (art. 11 / art. 28 correction)
 agreely verbal-consent record|show|paper ...    # a consent given by telephone (see below)
-agreely withdraw <customerRef> <consentRef> --channel <c> --operator <id> [--requested-at <t>] [--reason <text>] [--json]
+agreely withdraw <customerRef> <consentRef> --channel <c> --operator <id> [--requested-at <t>] [--reason <text>] [--other-consents withdraw|keep | --also-withdraw <ref,...>] [--json]
 agreely customer get|set <customerRef> ...      # the customer registry
 agreely retention show|dispose <customerRef> ...
 agreely holds place|release|list|sync ...
 agreely consent-sheet create <customerRef> --document-version <id> --out <file.pdf> [--locale fr|en] [--json]
 agreely documents list|show <code>|pdf <documentVersionId> --out <file.pdf> [--json]
+agreely verify <file.json> [--did-doc <file> ...] [--onchain --rpc-url <url>] [--ipfs] [--json]   # verify a consent bundle or receipt
 agreely whoami [--json]                         # server-verified: reports the key's real scopes
 agreely login                                  # interactive: store a key in the OS keychain
 agreely config set --api-key <k> [--base-url <url>]   # non-interactive store (for scripts)
@@ -270,7 +272,11 @@ Hand the subject a self-claim link with `manual-consent claim-link --customer <i
 withdraw a consent with `manual-consent revoke <consentRef> [--reason <text>]`. The
 result's `gate` says what `check` answers now for that purpose: `denied` (this
 consent backed it), `superseded` (a later consent had already taken over and is
-untouched) or `unchanged` (an idempotent repeat).
+untouched) or `unchanged` (an idempotent repeat). When a consent the person signed
+with her passkey holds the purpose, revoke and erase are refused `409
+citizen_consent_at_gate` (exit `2`): `--other-consents keep` ends this record and leaves
+that consent in force, and the result says `stillInForce: true`. `--other-consents
+withdraw` is refused the same way: record her withdrawal with `withdraw` instead.
 
 `manual-consent create` also takes `--sensitive-express-attested` and
 `--version-attested`, sent only when given.
@@ -307,9 +313,18 @@ a key by default). `--channel` is `phone`, `email`, `mail`, `in_person` or `othe
 `--operator` is your opaque id of the staff member, never an email.
 
 ```sh
-agreely withdraw cust-42 0x… --channel phone --operator agent-7 --reason "asked by phone" --json
-# -> {"consentRef":"0x…","withdrawn":true,"alreadyWithdrawn":false,"recordedOnBehalf":true,"assurance":"company_attested","gate":"denied","alsoWithdrawn":[]}
+agreely withdraw cust-42 0x… --channel phone --operator agent-7 --reason "asked by phone" --other-consents keep --json
+# -> {"consentRef":"0x…","withdrawn":true,"alreadyWithdrawn":false,"recordedOnBehalf":true,"assurance":"company_documented","gate":"denied","alsoWithdrawn":[],"stillInForce":["0x…"]}
 ```
+
+A withdrawal ends this consent, and the other consents of its purpose only when you
+say so. `--other-consents withdraw` takes them all, `--other-consents keep` leaves them
+in force, and `--also-withdraw <ref,...>` names those to take (comma-separated
+consentRefs, at most 50, repeatable). Give one of the two flags, never both. Without
+either, a purpose with another consent in force is refused `422
+other_consents_running` (exit `2`), and the error lists them in `otherConsentRefs`: ask
+the person, then retry with a scope. `alsoWithdrawn` lists the consents withdrawn with
+this one, `stillInForce` those still in force.
 
 Read `gate` before telling anyone the use stopped. The daily cap (50 per 24 hours by
 default; an operator can raise it) exits `8`: record further withdrawals from the customer page in Agreely.
@@ -346,6 +361,39 @@ last page carries `cursor`. `holds sync` walks every page and prints
 as the next `--changed-since`. Without `--changed-since` the result is a snapshot of
 every active hold (replace your whole set); with it, a delta (upsert by `id`).
 Delivery is at least once.
+
+### `verify`
+
+```sh
+agreely verify ./consent-bundle.json --did-doc ./issuer.did.json --did-doc ./citizen.did.json
+agreely verify ./consent-bundle.json --onchain --rpc-url https://mainnet.base.org --json
+```
+
+Verifies a consent from the verification bundle a passkey consent issues (receipt,
+signed offer, Merkle root) or from a paper or telephone receipt, offline-first, and
+prints what is proved and what is merely trusted. Needs no API key.
+
+A passkey consent verifies (exit `0`) once the company signature over the offer holds,
+the receipt matches that offer, its acceptance date (`grantedAt`) lies inside the
+offer's window (`createdAt` to `expiresAt`), the passkey assertion is bound to its
+content, and the citizen's DID document lists that key under `authentication` with a
+window `[validFrom, validUntil)` that covers `grantedAt`. A key the document does not
+confirm, or a date outside either window, exits `6`.
+
+- The signing keys come from the issuer and citizen DID documents: one HTTPS
+  resolution by default, or `--did-doc <file>` (repeatable) for an air-gapped verify.
+  **A `--did-doc` document is trusted as given**: whoever supplies it supplies the key.
+  Take it from the issuer and the citizen tier, never out of the file under test. The
+  bundle's own `didDocuments` are never trusted.
+- The citizen half is checked only for a `did:agreely:citizen:` subject. Any other
+  subject reads `unavailable` and the consent is never `verified` (exit `4`).
+- `--onchain` (with `--rpc-url` or `AGREELY_RPC_URL`) also reads the document and
+  consent anchors; `--ipfs` also fetches and compares the IPFS disclosure copy. Both
+  are opt-in network calls, and a check you asked for that could not complete exits
+  `4`, never `0`.
+- Exit `0` verified, or `partial` on a telephone receipt; `6` failed or malformed; `2`
+  a file that is not JSON; `4` a check could not complete; `11` a bare passkey receipt
+  (verify its bundle). See the exit table.
 
 ### `consent-sheet`
 

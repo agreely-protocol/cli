@@ -6,7 +6,12 @@
 //            --effective-date <YYYY-MM-DD> --valid-until <YYYY-MM-DD>
 //            [--item <id|cat:purpose> ...] --pdf <path> [--upload] [--json]
 //   claim-link --customer <id> [--reference <ref>] [--json]
-//   revoke   <consentRef> --reason <text> [--json]
+//   revoke   <consentRef> [--reason <text>] [--other-consents keep|withdraw] [--json]
+//   erase    <consentRef> [--reason <text>] [--other-consents keep|withdraw] [--json]
+//
+// --other-consents keep ends this record while a consent the person signed with her
+// passkey keeps the purpose in force (the result says stillInForce). Without it, that
+// purpose is refused 409 citizen_consent_at_gate; "withdraw" is refused the same way.
 //
 // The PDF is hashed LOCALLY (node crypto): only the "0x"+sha256 commitment is sent
 // by default. The bytes leave the machine ONLY when --upload is passed. That local
@@ -32,7 +37,7 @@ import { buildClient } from "../auth.js";
 import type { Context } from "../context.js";
 import { parseItem } from "../create-input.js";
 import { readEvidence } from "../evidence.js";
-import { CONSENT_REF_RE, assertDate, keyOrNew, rawRef } from "../flags.js";
+import { CONSENT_REF_RE, assertDate, keyOrNew, oneOf, rawRef } from "../flags.js";
 import { UsageError } from "../errors.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
@@ -147,6 +152,17 @@ export async function manualConsentClaimLinkCommand(
 
 export interface ManualConsentRevokeFlags {
   reason?: string;
+  otherConsents?: string;
+}
+
+const OTHER_CONSENTS = ["keep", "withdraw"] as const;
+
+function mutationInput(flags: ManualConsentRevokeFlags): { reason?: string; otherConsents?: "keep" | "withdraw" } {
+  const otherConsents = flags.otherConsents?.trim();
+  return {
+    ...(flags.reason?.trim() ? { reason: flags.reason.trim() } : {}),
+    ...(otherConsents !== undefined ? { otherConsents: oneOf(otherConsents, OTHER_CONSENTS, "--other-consents") } : {}),
+  };
 }
 
 export async function manualConsentRevokeCommand(
@@ -159,9 +175,7 @@ export async function manualConsentRevokeCommand(
   }
 
   const { client } = await buildClient(ctx, { write: true });
-  const result: ManualConsentRevocation = await client.manualConsents.revoke(consentRef, {
-    ...(flags.reason?.trim() ? { reason: flags.reason.trim() } : {}),
-  });
+  const result: ManualConsentRevocation = await client.manualConsents.revoke(consentRef, mutationInput(flags));
 
   if (ctx.agent) {
     emitJson(ctx, result);
@@ -174,11 +188,10 @@ export async function manualConsentRevokeCommand(
   // it), "superseded" (a later consent had already taken it over and is untouched) or
   // "unchanged" (an idempotent repeat).
   emitLine(ctx, `  ${pc.bold("gate")}  ${result.gate}`);
+  if (result.stillInForce === true) emitLine(ctx, `  ${pc.bold("stillInForce")}  another consent keeps the purpose in force`);
 }
 
-export interface ManualConsentEraseFlags {
-  reason?: string;
-}
+export type ManualConsentEraseFlags = ManualConsentRevokeFlags;
 
 export async function manualConsentEraseCommand(
   ctx: Context,
@@ -190,9 +203,7 @@ export async function manualConsentEraseCommand(
   }
 
   const { client } = await buildClient(ctx, { write: true });
-  const result: ManualConsentErasure = await client.manualConsents.erase(consentRef, {
-    ...(flags.reason?.trim() ? { reason: flags.reason.trim() } : {}),
-  });
+  const result: ManualConsentErasure = await client.manualConsents.erase(consentRef, mutationInput(flags));
 
   if (ctx.agent) {
     emitJson(ctx, result);
@@ -201,4 +212,5 @@ export async function manualConsentEraseCommand(
 
   const tag = result.alreadyErased ? pc.dim("(already erased)") : "";
   emitLine(ctx, `${pc.green("✓")} Erased ${pc.bold(result.consentRef)} ${tag}`);
+  if (result.stillInForce === true) emitLine(ctx, `  ${pc.bold("stillInForce")}  another consent keeps the purpose in force`);
 }

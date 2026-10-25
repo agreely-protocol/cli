@@ -1,0 +1,17 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1"
+  ],
+  "id": "did:web:evil.example:clients:jean",
+  "verificationMethod": [
+    {
+      "id": "did:web:evil.example:clients:jean#passkey-1",
+      "type": "WebAuthnPasskey",
+      "controller": "did:web:evil.example:clients:jean",
+      "publicKeyCose": "0xa4010103272006215820789914b55ec2450811c643864065286aea4a92b1b9b7639fc56b913adb20e029"
+    }
+  ],
+  "authentication": [
+    "did:web:evil.example:clients:jean#passkey-1"
+  ]
+}

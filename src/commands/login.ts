@@ -1,11 +1,11 @@
-// agreely login   — human, interactive: prompt for a key (+ optional base URL),
+// agreely login   (human, interactive): prompt for a key (+ optional base URL),
 //                    store it (keychain, else ~/.config/agreely/config.json 0600),
 //                    then verify it against the live API.
-// agreely config set [--api-key <k>] [--base-url <url>]  — the non-interactive
+// agreely config set [--api-key <k>] [--base-url <url>]: the non-interactive
 //                    store path (for setup scripts). Never prompts.
 //
 // In agent mode, `login` errors clearly (it is inherently interactive) rather
-// than hanging on a prompt — use `config set` or AGREELY_API_KEY instead.
+// than hanging on a prompt: use `config set` or AGREELY_API_KEY instead.
 
 import * as prompts from "@clack/prompts";
 import { Agreely } from "@agreely/sdk";
@@ -45,7 +45,7 @@ export async function loginCommand(ctx: Context): Promise<void> {
   const key = String(apiKey).trim();
   const base = String(baseUrl).trim();
 
-  // Verify before persisting — never store a key that does not work.
+  // Verify before persisting: never store a key that does not work.
   const spinner = prompts.spinner();
   spinner.start("Verifying…");
   try {

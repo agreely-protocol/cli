@@ -28,7 +28,7 @@ export function note(ctx: Context, line: string): void {
 export function reportError(ctx: Context, err: unknown): void {
   const code = errorCodeFor(err);
   const message = messageFor(err);
-  const { reason, field } = detailFor(err);
+  const { reason, field, otherConsentRefs } = detailFor(err);
   // A timeout or outage on a write may or may not have landed: say which key to retry with.
   const retry =
     ctx.retryKey !== undefined && (exitCodeForError(err) === EXIT.UNAVAILABLE || code === "retry")
@@ -37,13 +37,24 @@ export function reportError(ctx: Context, err: unknown): void {
   if (ctx.agent) {
     ctx.io.stderr.write(
       JSON.stringify({
-        error: { code, message, ...(reason !== undefined ? { reason } : {}), ...(field !== undefined ? { field } : {}), ...retry },
+        error: {
+          code,
+          message,
+          ...(reason !== undefined ? { reason } : {}),
+          ...(field !== undefined ? { field } : {}),
+          ...(otherConsentRefs !== undefined ? { otherConsentRefs } : {}),
+          ...retry,
+        },
       }) + "\n",
     );
   } else {
     ctx.io.stderr.write(`${pc.red("✗")} ${pc.red(message)}\n`);
     const parts = [`code ${code}`, ...(reason !== undefined ? [`reason ${reason}`] : []), ...(field !== undefined ? [`field ${field}`] : [])];
     ctx.io.stderr.write(pc.dim(`  ${parts.join(", ")}`) + "\n");
+    if (otherConsentRefs !== undefined) {
+      ctx.io.stderr.write(pc.dim(`  Other consents in force: ${otherConsentRefs.join(", ")}`) + "\n");
+      ctx.io.stderr.write(pc.dim("  Ask the person, then retry with --other-consents keep|withdraw or --also-withdraw <ref,...>.") + "\n");
+    }
     if ("idempotencyKey" in retry) {
       ctx.io.stderr.write(pc.dim(`  The write may or may not have landed. Retry with the SAME key: --idempotency-key ${ctx.retryKey}`) + "\n");
     }

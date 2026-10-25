@@ -1,19 +1,26 @@
-// agreely verify <receipt.json> [--onchain] [--ipfs] [--rpc-url <url>]
-//                               [--did-doc <file>...] [--json]
+// agreely verify <bundle-or-receipt.json> [--onchain] [--ipfs] [--rpc-url <url>]
+//                                        [--did-doc <file>...] [--json]
 //
-// THE headline: verify a consent receipt OFFLINE-FIRST and print the honesty
-// matrix — exactly what is PROVED vs merely trusted. The signature/assertion
-// checks need the signing key from the issuer/citizen DID document: by default
-// that is ONE HTTPS resolution, or pass --did-doc <file> (repeatable) to supply
-// the DID document(s) locally for a fully AIR-GAPPED verify with no network at
-// all. The IPFS disclosure copy (--ipfs) and the on-chain document-anchor check
-// (--onchain, needs an RPC URL) are OPT-IN extra network calls.
+// THE headline: verify a consent OFFLINE-FIRST and print the honesty matrix,
+// exactly what is PROVED vs merely trusted. The file is the verification bundle a
+// passkey consent issues (receipt, signedOffer, merkleRoot) or a receipt. The
+// signature/assertion checks need the signing key from the issuer/citizen DID
+// document: by default that is ONE HTTPS resolution, or pass --did-doc <file>
+// (repeatable) to supply the DID document(s) locally for a fully AIR-GAPPED verify.
+// The bundle's own didDocuments are never trusted. The IPFS disclosure copy (--ipfs)
+// and the on-chain anchors (--onchain, needs an RPC URL) are OPT-IN network calls.
 //
-//   overall "verified"     -> exit 0   (a company-attested receipt, fully sound)
-//   overall "partial"      -> exit 0   (a citizen receipt offline — honest, not a failure)
-//   overall "failed"       -> exit 6   (a check ACTIVELY did not verify — a tamper)
-//   overall "unavailable"  -> exit 4   (a check could NOT complete — a DID could not
-//                                       be resolved; INCONCLUSIVE, not a forgery)
+//   "verified"                       -> exit 0   (a passkey bundle or a paper receipt, sound)
+//   "partial" on a telephone receipt -> exit 0   (the organisation's signed word, sound)
+//   "incomplete"                     -> exit 11  (a bare passkey receipt: verify its bundle)
+//   "failed"                         -> exit 6   (a check ACTIVELY did not verify: a tamper)
+//   "malformed"                      -> exit 6   (not a file Agreely issued: unreadable, never a tamper)
+//   "unavailable"                    -> exit 4   (a check could NOT complete: inconclusive)
+//   a --onchain or --ipfs check that could not complete turns a 0 into 4: what was
+//   asked for was not proved.
+//
+// --did-doc documents are TRUSTED AS GIVEN: they supply the signing keys. Take them from
+// the issuer and citizen, never out of the file under test.
 
 import { readFile } from "node:fs/promises";
 import { Agreely, type DidDocument, type ReceiptVerification, type VerifyReceiptOptions } from "@agreely/sdk";
@@ -25,7 +32,7 @@ export interface VerifyFlags {
   onchain?: boolean;
   ipfs?: boolean;
   rpcUrl?: string;
-  /** Local DID document file(s) — supply the signing key(s) for an air-gapped verify. */
+  /** Local DID document file(s): supply the signing key(s) for an air-gapped verify. */
   didDoc?: string[];
 }
 
@@ -39,7 +46,7 @@ export async function verifyCommand(ctx: Context, path: string, flags: VerifyFla
 
   const opts: VerifyReceiptOptions = { verifyDisclosure: flags.ipfs === true };
 
-  // --did-doc: resolve DIDs from local files ONLY (no network) — an air-gapped
+  // --did-doc: resolve DIDs from local files ONLY (no network), an air-gapped
   // verify. Each file is a DID document keyed by its `id`; an unknown DID
   // resolves to null, so the check reports "unavailable" rather than reaching out.
   if (flags.didDoc && flags.didDoc.length > 0) {
@@ -60,17 +67,42 @@ export async function verifyCommand(ctx: Context, path: string, flags: VerifyFla
   if (ctx.agent) {
     emitJson(ctx, result);
   } else {
-    printMatrix(ctx, result);
+    printMatrix(ctx, result, flags);
   }
 
-  // failed (a real tamper) -> 6; unavailable (a DID could not be resolved —
-  // inconclusive, treated as an outage) -> 4; verified/partial -> 0.
-  ctx.exit =
-    result.overall === "failed"
-      ? EXIT.VERIFY_FAILED
-      : result.overall === "unavailable"
-        ? EXIT.UNAVAILABLE
-        : EXIT.OK;
+  ctx.exit = exitFor(result, flags);
+}
+
+/**
+ * 0 only for what the SDK proved, including every opt-in check the caller asked for. An overall this
+ * CLI does not know is never read as a success.
+ */
+export function exitFor(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs"> = {}): number {
+  const code = exitForOverall(r);
+  return code === EXIT.OK && askedCheckUnavailable(r, asked) ? EXIT.UNAVAILABLE : code;
+}
+
+function askedCheckUnavailable(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs">): boolean {
+  const onchain = asked.onchain === true && (r.documentAnchor === "unavailable" || r.consentAnchor === "unavailable");
+  return onchain || (asked.ipfs === true && r.disclosureCopy === "unavailable");
+}
+
+function exitForOverall(r: ReceiptVerification): number {
+  switch (r.overall) {
+    case "verified":
+      return EXIT.OK;
+    case "partial":
+      return r.receiptType === "company_documented" ? EXIT.OK : EXIT.ERROR;
+    case "incomplete":
+      return EXIT.VERIFY_INCOMPLETE;
+    case "failed":
+    case "malformed":
+      return EXIT.VERIFY_FAILED;
+    case "unavailable":
+      return EXIT.UNAVAILABLE;
+    default:
+      return EXIT.ERROR;
+  }
 }
 
 /** Load DID document files and key them by their `id` for the local resolver. */
@@ -91,27 +123,57 @@ async function loadDidDocs(paths: string[]): Promise<Record<string, DidDocument>
   return docs;
 }
 
-function printMatrix(ctx: Context, r: ReceiptVerification): void {
+function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs">): void {
   const verdict =
     r.overall === "verified"
       ? pc.green("✓ VERIFIED")
       : r.overall === "partial"
         ? pc.yellow("~ PARTIAL")
-        : r.overall === "unavailable"
-          ? pc.yellow("? UNAVAILABLE")
-          : pc.red("✗ FAILED");
-  emitLine(ctx, `${verdict}  ${pc.dim(`(${r.receiptType})`)}`);
+        : r.overall === "incomplete"
+          ? pc.yellow("~ INCOMPLETE")
+          : r.overall === "unavailable"
+            ? pc.yellow("? UNAVAILABLE")
+            : r.overall === "malformed"
+              ? pc.red("✗ MALFORMED")
+              : pc.red("✗ FAILED");
+  emitLine(ctx, `${verdict}  ${pc.dim(`(${r.receiptType}, read as a ${r.input})`)}`);
   emitLine(ctx, `  companySignature  ${statusLabel(r.companySignature)}`);
+  emitLine(ctx, `  receiptIntegrity  ${statusLabel(r.receiptIntegrity)}`);
   emitLine(ctx, `  citizenAssertion  ${statusLabel(r.citizenAssertion)}`);
   emitLine(ctx, `  disclosureCopy    ${statusLabel(r.disclosureCopy)}`);
   emitLine(ctx, `  documentAnchor    ${statusLabel(r.documentAnchor)}`);
+  emitLine(ctx, `  consentAnchor     ${statusLabel(r.consentAnchor)}`);
   emitLine(ctx, `  cellLabelBinding  ${statusLabel(r.cellLabelBinding)}`);
   emitLine(ctx, "");
+  if (r.overall === "incomplete") {
+    emitLine(
+      ctx,
+      `  ${pc.yellow("!")} INCOMPLETE: verify the bundle. A passkey receipt proves nothing on its own: pass the ` +
+        "verification bundle issued with it (the file that carries receipt, signedOffer and merkleRoot).",
+    );
+    emitLine(ctx, "");
+  }
   if (r.overall === "unavailable") {
     emitLine(
       ctx,
-      `  ${pc.yellow("!")} UNVERIFIABLE: a DID could not be resolved, so verification could not complete. ` +
-        "This is NOT a forgery: retry with connectivity, or pass --did-doc <file> to verify air-gapped.",
+      `  ${pc.yellow("!")} UNVERIFIABLE: a check could not complete (a DID could not be resolved, or an RPC or ` +
+        "gateway failed). This is NOT a forgery: retry with connectivity, or pass --did-doc <file> to verify air-gapped.",
+    );
+    emitLine(ctx, "");
+  }
+  if (r.overall === "malformed") {
+    emitLine(
+      ctx,
+      `  ${pc.red("!")} MALFORMED: this file is not a verification bundle or receipt this verifier can read, so no ` +
+        "check ran. It is NOT evidence of a tamper: ask the issuer for the file Agreely issued.",
+    );
+    emitLine(ctx, "");
+  }
+  if (exitForOverall(r) === EXIT.OK && askedCheckUnavailable(r, asked)) {
+    emitLine(
+      ctx,
+      `  ${pc.yellow("!")} A CHECK YOU ASKED FOR could not complete (--onchain or --ipfs): it was not proved, so ` +
+        "this exits 4. Retry with connectivity.",
     );
     emitLine(ctx, "");
   }
@@ -128,6 +190,8 @@ function statusLabel(status: string): string {
       return pc.red("fail");
     case "unavailable":
       return pc.yellow("unavailable");
+    case "unbound":
+      return pc.yellow("unbound");
     case "unsupported":
       return pc.dim("unsupported");
     default:

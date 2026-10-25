@@ -1,0 +1,58 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/data-integrity/v2"
+  ],
+  "id": "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc",
+  "alsoKnownAs": [
+    "did:web:qa1021b-boulangerie.ca"
+  ],
+  "verificationMethod": [
+    {
+      "id": "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc#kms-1",
+      "type": "Multikey",
+      "controller": "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc",
+      "publicKeyMultibase": "z6MkidMSt22QFskRn7m4CzsoA86qpM9LRDcz7FV79s3jCCKs"
+    },
+    {
+      "id": "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc#root-1",
+      "type": "WebAuthnAuthenticationKey2024",
+      "controller": "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc",
+      "publicKeyCose": "0xa50102032620012158205ce2cce19acb47f3eba7ad8768f7bfcdfa2e8dfded3f155b638e9f6e866a602a225820d18ea7c59aa10e827d649667d98350c44f72dd94dd8dcc72853f2ca0c26c2d1a",
+      "rpId": "localhost"
+    }
+  ],
+  "assertionMethod": [
+    "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc#kms-1"
+  ],
+  "authentication": [
+    "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc#kms-1"
+  ],
+  "capabilityDelegation": [
+    "#root-1"
+  ],
+  "delegation": {
+    "type": "agreely.keyDelegation.v1",
+    "body": {
+      "rpId": "localhost",
+      "type": "agreely.keyDelegation.v1",
+      "nonce": "0x3322f036179f28802974867cb22717499013116462d4a89e48790e0b31c453ca",
+      "chainId": "84532",
+      "registry": "0x3532a9dff3c910152543afca49de7c66113c5312",
+      "delegatee": {
+        "keyId": "0x48b694c4043b68070cf270f4bc9b3262b90e56f105a18aed36b0b19e5c9e5b2f"
+      },
+      "rootKeyId": "0x359fa983b9485d87a4c8d3e2fc74e34cb8e94dc8f3375d39600d0b75237eebe9",
+      "validFrom": "2026-10-21T01:11:02Z",
+      "companyDid": "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc",
+      "validUntil": "2027-10-21T01:11:02Z"
+    },
+    "proof": {
+      "type": "WebAuthnDelegationProof2026",
+      "verificationMethod": "did:web:app.agreely.ca:c:qa1021b-boulangerie-eve-helene-inc#root-1",
+      "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAg",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoieGZrdk9oeGpkcjhyNXpPTlVQcUJBSXVfeDJEUGxLYWlmQTY4b3p1ZUZXWSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MTgzODIiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+      "signature": "MEQCIGDm7qhCrR6qo1uouPKvYdwrQdtF2OT7WxlrFWZgxq56AiActQDvAB2-rsFgOY5RKFhVxXC-mOVz6G_3VCDA0-k3cw"
+    }
+  }
+}

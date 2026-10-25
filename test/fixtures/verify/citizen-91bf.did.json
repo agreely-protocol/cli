@@ -1,0 +1,21 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/suites/ed25519-2020/v1"
+  ],
+  "id": "did:agreely:citizen:demo-91bf5c897c067cb69df0",
+  "verificationMethod": [
+    {
+      "id": "did:agreely:citizen:demo-91bf5c897c067cb69df0#passkey-1",
+      "controller": "did:agreely:citizen:demo-91bf5c897c067cb69df0",
+      "validFrom": "2026-10-24T17:14:04Z",
+      "validUntil": null,
+      "type": "WebAuthnAuthenticationKey2024",
+      "publicKeyCose": "0xa5010203262001215820f53d0d5fb21714ed3e46fe020373cad320f285ad15fff8c450309aeb9d24ed90225820639ec7174ea340653740eecfd41387d3c137c972544bac6f4819f27df19d5b7f"
+    }
+  ],
+  "authentication": [
+    "#passkey-1"
+  ],
+  "capabilityInvocation": []
+}

@@ -1,4 +1,4 @@
-// agreely whoami — a SERVER-VERIFIED auth check. Calls GET /v1/whoami (any scope)
+// agreely whoami: a SERVER-VERIFIED auth check. Calls GET /v1/whoami (any scope)
 // so it reports the REAL scopes the key carries, not a locally inferred guess.
 // Success -> the masked key, its source, the base URL, and the server scopes.
 // A bad/missing key surfaces AgreelyAuthError -> exit 3. Secrets never printed.
@@ -21,7 +21,7 @@ export async function whoamiCommand(ctx: Context): Promise<void> {
       apiKeyMasked: masked,
       apiKeySource: auth.apiKeySource,
       baseUrl,
-      // The server's own answer — the key's real scopes (least disclosure).
+      // The server's own answer: the key's real scopes (least disclosure).
       scopes: identity.scopes,
     });
     return;

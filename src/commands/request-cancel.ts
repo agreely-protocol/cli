@@ -1,7 +1,7 @@
 // agreely request cancel <requestId> [--json]
 // requestId is the protocol handle: 0x + 64 hex. Scope: 'issue'. Cancels a still-
 // PENDING request (the "revoke before action" path). IDEMPOTENT: cancelling an
-// already-terminal request is NOT an error — it reports cancelled:false with the
+// already-terminal request is NOT an error: it reports cancelled:false with the
 // current status and still exits 0. Errors funnel through the central exit mapper
 // (a bad/scope-less key -> 3, an unknown id -> 2).
 

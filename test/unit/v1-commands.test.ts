@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgreelyConflictError,
   AgreelyDailyCapError,
+  AgreelyOtherConsentsRunningError,
   AgreelyRateLimitError,
   AgreelyTimeoutError,
   AgreelyValidationError,
@@ -209,6 +210,56 @@ describe("withdraw", () => {
   it("a plain rate limit still exits 5", async () => {
     h.withdraw.mockRejectedValue(new AgreelyRateLimitError("slow", { code: "rate_limited", status: 429, retryAfter: 3 }));
     expect((await json(...args)).code).toBe(EXIT.RATE_LIMITED);
+  });
+
+  const OTHER = "0x" + "c".repeat(64);
+  const THIRD = "d".repeat(64);
+  const done = { consentRef: CONSENT, gate: "denied", alsoWithdrawn: [], stillInForce: [] };
+
+  it.each([
+    [["--other-consents", "keep"], { otherConsents: "keep" }],
+    [["--other-consents", "withdraw"], { otherConsents: "withdraw" }],
+    [["--also-withdraw", `${OTHER}, ${THIRD}`], { alsoWithdraw: [OTHER, THIRD] }],
+    [["--also-withdraw", OTHER, "--also-withdraw", THIRD], { alsoWithdraw: [OTHER, THIRD] }],
+  ])("sends the scope %j through the SDK", async (flags, scope) => {
+    h.withdraw.mockResolvedValue(done);
+    expect((await json(...args, ...flags)).code).toBe(EXIT.OK);
+    expect(h.withdraw.mock.calls[0]?.[2]).toEqual({ channel: "phone", operator: "op-1", ...scope });
+  });
+
+  it.each([
+    ["both scopes together", ["--other-consents", "keep", "--also-withdraw", OTHER]],
+    ["an unknown scope", ["--other-consents", "all"]],
+    ["a ref that is not a consentRef", ["--also-withdraw", `${OTHER},nope`]],
+    ["an empty list", ["--also-withdraw", ","]],
+    ["more than 50 refs", ["--also-withdraw", Array.from({ length: 51 }, () => OTHER).join(",")]],
+    ["a blank other-consents beside also-withdraw", ["--other-consents", "", "--also-withdraw", OTHER]],
+    ["a blank other-consents alone", ["--other-consents", ""]],
+  ])("refuses %s before any call (exit 2)", async (_label, flags) => {
+    expect((await json(...args, ...flags)).code).toBe(EXIT.USAGE);
+    expect(h.withdraw).not.toHaveBeenCalled();
+  });
+
+  it("takes 50 refs", async () => {
+    h.withdraw.mockResolvedValue(done);
+    expect((await json(...args, "--also-withdraw", Array.from({ length: 50 }, () => OTHER).join(","))).code).toBe(EXIT.OK);
+  });
+
+  it("prints the consents still in force", async () => {
+    h.withdraw.mockResolvedValue({ ...done, assurance: "company_documented", alsoWithdrawn: [OTHER], stillInForce: ["0x" + THIRD] });
+    const io = makeIo({ env: ENV, isTTY: true });
+    expect(await run(argv(...args, "--also-withdraw", OTHER), io.io)).toBe(EXIT.OK);
+    expect(io.out()).toContain(`also withdrawn ${OTHER}`);
+    expect(io.out()).toContain(`still in force 0x${THIRD}`);
+  });
+
+  it("a refusal over other consents in force exits 2 and lists them", async () => {
+    h.withdraw.mockRejectedValue(
+      new AgreelyOtherConsentsRunningError("other consents", { code: "other_consents_running", status: 422, otherConsentRefs: [OTHER] }),
+    );
+    const r = await json(...args);
+    expect(r.code).toBe(EXIT.USAGE);
+    expect(JSON.parse(r.err.trim()).error).toMatchObject({ code: "other_consents_running", otherConsentRefs: [OTHER] });
   });
 });
 

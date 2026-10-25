@@ -4,7 +4,7 @@
 //     --customer <id> --to <email> (--document <versionId> | --document-code <code>)
 //     --valid-until <YYYY-MM-DD> [--json] [--idempotency-key <k>]
 //
-//   Human (a TTY, no scriptable flags): an interactive wizard — the published
+//   Human (a TTY, no scriptable flags): an interactive wizard: the published
 //   consent document reference (the Law 25 s. 8 disclosure the request is
 //   issued under; find it under Consent documents in the company workspace),
 //   then customer, recipient email, valid-until, with validation and a final

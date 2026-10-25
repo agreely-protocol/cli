@@ -1,5 +1,5 @@
 // Contract / E2E: drive the BUILT bin (dist/bin.js) as a real process against the
-// live local API on :8081, asserting the agent contract end to end — the exit
+// live local API on :8081, asserting the agent contract end to end: the exit
 // codes, the pure-JSON stdout, issuance + idempotency, and revoke -> instant deny.
 //
 // Gated on a seeded fixture (make cli-contract writes it) AND a built bin; without

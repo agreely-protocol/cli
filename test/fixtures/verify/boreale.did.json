@@ -1,0 +1,58 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/data-integrity/v2"
+  ],
+  "id": "did:web:app.agreely.ca:c:showcase-assurance-boreale",
+  "alsoKnownAs": [
+    "did:web:assurance-boreale.example"
+  ],
+  "verificationMethod": [
+    {
+      "id": "did:web:app.agreely.ca:c:showcase-assurance-boreale#kms-1",
+      "type": "Multikey",
+      "controller": "did:web:app.agreely.ca:c:showcase-assurance-boreale",
+      "publicKeyMultibase": "z6MkiyEw5Q64vrEDKjq3PysCAftZGEmcyzjsDTSnufbq85YA"
+    },
+    {
+      "id": "did:web:app.agreely.ca:c:showcase-assurance-boreale#root-1",
+      "type": "WebAuthnAuthenticationKey2024",
+      "controller": "did:web:app.agreely.ca:c:showcase-assurance-boreale",
+      "publicKeyCose": "0xa5010203262001215820a876df4e3132b838f351e07be0ac755f18dc8898ed020dd7e6ba0540828404f522582058c288a2da23df8d9ba58f526974a17b143f3287e6316b7ccbf90fab34c8eb80",
+      "rpId": "localhost"
+    }
+  ],
+  "assertionMethod": [
+    "did:web:app.agreely.ca:c:showcase-assurance-boreale#kms-1"
+  ],
+  "authentication": [
+    "did:web:app.agreely.ca:c:showcase-assurance-boreale#kms-1"
+  ],
+  "capabilityDelegation": [
+    "#root-1"
+  ],
+  "delegation": {
+    "type": "agreely.keyDelegation.v1",
+    "body": {
+      "rpId": "localhost",
+      "type": "agreely.keyDelegation.v1",
+      "nonce": "0x031d6f920a0d125b9d03762049bc7716a218dd06e2acc23a3ec873ce18aab25f",
+      "chainId": "84532",
+      "registry": "0x3532a9dff3c910152543afca49de7c66113c5312",
+      "delegatee": {
+        "keyId": "0xa2a946771b18babb9008bb48691f8f429805626e1ce81e5c416d8a76004429a2"
+      },
+      "rootKeyId": "0x424da44937462aec54b575fc986476c6b398779d56ddc88872d138d962071774",
+      "validFrom": "2026-10-24T17:14:02Z",
+      "companyDid": "did:web:app.agreely.ca:c:showcase-assurance-boreale",
+      "validUntil": "2027-10-24T17:14:02Z"
+    },
+    "proof": {
+      "type": "WebAuthnDelegationProof2026",
+      "verificationMethod": "did:web:app.agreely.ca:c:showcase-assurance-boreale#root-1",
+      "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAQ",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiZDd1RTMxUm1sdk9kNnlHbG5KbTlrN1hhOFZ4cURfRHN5NUZzUGRiNEVWdyIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODA5MCJ9",
+      "signature": "MEUCIQCweXnKaJkTq1fJV7MAVS160ib-oJVVdvFp3AvhsmXPjAIgWkWCHjj-Fi_F7EzyeKrfPUms9OOdLX8qRKTJbrf2aG0"
+    }
+  }
+}

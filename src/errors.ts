@@ -9,6 +9,7 @@ import {
   AgreelyDailyCapError,
   AgreelyError,
   AgreelyNotFoundError,
+  AgreelyOtherConsentsRunningError,
   AgreelyRateLimitError,
   AgreelyTimeoutError,
   AgreelyUnavailableError,
@@ -49,6 +50,11 @@ export const EXIT = {
   PARTIAL: 9,
   /** A clean check DENY: an expected negative, NOT an error. */
   DENY: 10,
+  /**
+   * `agreely verify` read a bare passkey receipt: nothing on it can be verified alone. Verify the
+   * verification bundle issued with it. DISTINCT from a tamper (6) and from an outage (4).
+   */
+  VERIFY_INCOMPLETE: 11,
 } as const;
 
 /** A CLI-side usage error (missing arg, bad flag, no credentials). Maps to exit 2. */
@@ -103,12 +109,18 @@ export function messageFor(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** The stable machine reason and offending field of an SDK error, when the server sent them. */
-export function detailFor(err: unknown): { reason?: string; field?: string } {
+/**
+ * The stable machine reason and offending field of an SDK error, when the server sent them, and the other consents
+ * in force that a withdrawal without a scope was refused over.
+ */
+export function detailFor(err: unknown): { reason?: string; field?: string; otherConsentRefs?: string[] } {
   if (!(err instanceof AgreelyError)) return {};
   const e = err as { reason?: unknown; field?: unknown };
   return {
     ...(typeof e.reason === "string" && e.reason !== "" ? { reason: e.reason } : {}),
     ...(typeof e.field === "string" && e.field !== "" ? { field: e.field } : {}),
+    ...(err instanceof AgreelyOtherConsentsRunningError && err.otherConsentRefs.length > 0
+      ? { otherConsentRefs: err.otherConsentRefs }
+      : {}),
   };
 }

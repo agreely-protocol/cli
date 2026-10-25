@@ -3,15 +3,61 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.5.0 - Unreleased
+
+Requires `@agreely/sdk` `^0.6.0`.
+
+### Added
+
+- **`verify` takes the consent's verification bundle** (receipt, signed offer, Merkle
+  root) or a recorded (paper, telephone) receipt, with the checks of `@agreely/sdk`
+  0.6.0. A passkey consent exits `0` once the company signature over the offer holds,
+  the receipt matches that offer, the passkey assertion is bound to its content, the
+  citizen's DID document lists that key under `authentication` with a window that
+  covers the acceptance date (`grantedAt`), and that date lies inside the offer's
+  window (`createdAt` to `expiresAt`).
+- **`verify --onchain`** also reads the consent anchor in the registry.
+- The README documents `verify`, and that a `--did-doc` document is trusted as given:
+  take it from the issuer and the citizen tier, never out of the file under test.
+- **`withdraw --other-consents withdraw|keep` and `--also-withdraw <ref,...>`** declare
+  the scope toward the other consents of the purpose: all withdrawn, all kept, or the
+  ones named (comma-separated consentRefs, at most 50, repeatable). The two together,
+  an unknown scope, a ref that is not a consentRef and more than 50 refs exit `2`
+  before any call.
+- `withdraw` prints `stillInForce`, the consents of the purpose still in force after
+  the act, beside `alsoWithdrawn`.
+- A withdrawal refused `422 other_consents_running` exits `2`, and its error envelope
+  carries `otherConsentRefs`, the consents in force to ask the person about.
+- **`manual-consent revoke` and `erase` take `--other-consents keep|withdraw`**, and
+  print `stillInForce` when another consent keeps the purpose in force.
+
+### Changed
+
+- Every file gets a verdict. A file the verifier cannot read (nesting past 64 levels, a
+  bundle of another version, a receipt or offer that is not an object) is `malformed`:
+  exit `6`, and the matrix says `MALFORMED`.
+- `withdraw` documents `assurance` as `company_documented`, the value the API sends.
 
 ### Breaking
 
+- **`verify` exits `0` only when a bundle or a paper receipt reads `verified`, or a
+  telephone receipt reads `partial`** (the organisation's signed word, sound). A bare
+  passkey receipt exits `11` (incomplete): pass the bundle instead. A file that is not
+  JSON exits `2` (usage).
+- **The citizen half is checked for a `did:agreely:citizen:` subject only; any other
+  subject exits `4`.**
+- **A passkey bundle without its `signedOffer` or `merkleRoot` exits `6`** (malformed),
+  not `11`.
+- **A passkey bundle whose citizen DID document does not confirm the key at
+  `grantedAt`, or whose `grantedAt` lies outside the offer's window, exits `6`.** A
+  `--did-doc` citizen document without `authentication` or `validFrom` exits `6`.
+- **`verify --onchain` or `--ipfs` exits `4`** when the check asked for cannot complete,
+  an RPC failure included, never `0` or `6`.
 - **`customer set` no longer takes `--basis-note` or `--legal-basis`.** The customer
-  registry holds no per-customer ground any more: the API ignores it and the SDK no
-  longer sends it. A script that passes either flag now fails with the usage exit code
-  `2` (unknown option). `customer get` and `customer set` no longer print the basis
-  note or the legal basis.
+  registry holds no per-customer ground: the API ignores it and the SDK does not send
+  it. A script that passes either flag fails with the usage exit code `2` (unknown
+  option). `customer get` and `customer set` do not print the basis note or the legal
+  basis.
 
 ## 0.4.0 - 2026-10-09
 

@@ -1,6 +1,6 @@
 // The unit matrix for the CLI shell, with the SDK and the prompt library mocked.
 // The @clack/prompts mock THROWS on any call, so any test that reaches a prompt
-// fails loudly — that is how we prove agent mode never prompts.
+// fails loudly: that is how we prove agent mode never prompts.
 
 import { createHash } from "node:crypto";
 import { mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
@@ -65,7 +65,7 @@ vi.mock("@agreely/sdk", async (importOriginal) => {
   return { ...actual, Agreely: FakeAgreely };
 });
 
-// Any prompt call throws — agent mode (non-TTY / --json) must never reach here.
+// Any prompt call throws: agent mode (non-TTY / --json) must never reach here.
 vi.mock("@clack/prompts", () => {
   const boom = () => {
     throw new Error("PROMPTED");
@@ -731,6 +731,28 @@ describe("manual-consent claim-link / revoke", () => {
     expect(opts).toEqual({ reason: "withdrawn" });
   });
 
+  it.each(["revoke", "erase"] as const)("%s sends --other-consents and prints stillInForce", async (verb) => {
+    const ref = "0x" + "e".repeat(64);
+    const mock = verb === "revoke" ? h.revoke : h.erase;
+    mock.mockResolvedValue({ consentRef: ref, gate: "denied", stillInForce: true });
+    const io = makeIo({ env: ENV, isTTY: true });
+    expect(await run(argv("manual-consent", verb, ref, "--other-consents", "keep"), io.io)).toBe(EXIT.OK);
+    expect(mock.mock.calls[0]?.[1]).toEqual({ otherConsents: "keep" });
+    expect(io.out()).toContain("stillInForce");
+
+    const bad = makeIo({ env: ENV });
+    expect(await run(argv("manual-consent", verb, ref, "--other-consents", "all", "--json"), bad.io)).toBe(EXIT.USAGE);
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["revoke", "erase"] as const)("%s refuses a blank --other-consents before any call (exit 2)", async (verb) => {
+    const ref = "0x" + "e".repeat(64);
+    const mock = verb === "revoke" ? h.revoke : h.erase;
+    const io = makeIo({ env: ENV });
+    expect(await run(argv("manual-consent", verb, ref, "--other-consents", "", "--json"), io.io)).toBe(EXIT.USAGE);
+    expect(mock).not.toHaveBeenCalled();
+  });
+
   it("revoke rejects a non-0x consentRef (exit 2)", async () => {
     const io = makeIo({ env: ENV });
     const code = await run(argv("manual-consent", "revoke", "not-a-ref", "--json"), io.io);
@@ -963,11 +985,14 @@ describe("request wait", () => {
 // -----------------------------------------------------------------------------
 describe("verify (the headline)", () => {
   const matrix = (overall: string) => ({
+    input: "receipt",
     receiptType: "company_attested",
     companySignature: overall === "failed" ? "fail" : "pass",
+    receiptIntegrity: overall === "failed" ? "fail" : "pass",
     citizenAssertion: "unsupported",
     disclosureCopy: "skipped",
     documentAnchor: "skipped",
+    consentAnchor: "skipped",
     cellLabelBinding: overall === "failed" ? "fail" : "pass",
     overall,
     notes: ["note one", "note two"],
@@ -999,8 +1024,8 @@ describe("verify (the headline)", () => {
     expect(io.out()).toContain("cellLabelBinding");
   });
 
-  it("partial (citizen offline) -> exit 0", async () => {
-    h.verify.mockResolvedValue(matrix("partial"));
+  it("partial on a telephone receipt (company_documented) -> exit 0", async () => {
+    h.verify.mockResolvedValue({ ...matrix("partial"), receiptType: "company_documented" });
     const io = makeIo({ env: ENV });
     const code = await run(argv("verify", writeReceipt(), "--json"), io.io);
     expect(code).toBe(EXIT.OK);
