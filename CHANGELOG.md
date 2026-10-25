@@ -3,6 +3,16 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Breaking
+
+- **`customer set` no longer takes `--basis-note` or `--legal-basis`.** The customer
+  registry holds no per-customer ground any more: the API ignores it and the SDK no
+  longer sends it. A script that passes either flag now fails with the usage exit code
+  `2` (unknown option). `customer get` and `customer set` no longer print the basis
+  note or the legal basis.
+
 ## 0.4.0 - 2026-10-09
 
 Covers the /v1 API through `@agreely/sdk` `^0.5.0` (a new minimum: `^0.3.0` does not

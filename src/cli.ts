@@ -485,8 +485,6 @@ export async function run(
       .argument("<customerRef>", "the company's own reference for the customer")
       .option("--display-name <name>", "the display name (at most 200 characters)")
       .option("--email <email>", "the email address")
-      .option("--basis-note <text>", "a note on the ground the customer is held on")
-      .option("--legal-basis <basis>", "the non-consent ground the customer is held on")
       .option("--notice-locale <locale>", "fr | en"),
   ).action(async (customerRef: string, opts: CustomerSetFlags, cmd: Command) => {
     await customerSetCommand(ctxFor(cmd), customerRef, defined(opts));

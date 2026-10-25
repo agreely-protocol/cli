@@ -609,12 +609,17 @@ describe("input validation shared across commands", () => {
     expect((await json("withdraw", "c1", hex, "--channel", "mail", "--operator", "o", "--requested-at", "yesterday")).code).toBe(EXIT.USAGE);
   });
 
-  it("customer set: one clearing rule, trimmed, legal basis and locale checked", async () => {
+  it("customer set: one clearing rule, trimmed, and the locale checked", async () => {
     h.custUpsert.mockResolvedValue({ customerRef: "c1", created: false });
-    await json("customer", "set", "c1", "--display-name", " Ada ", "--basis-note", "", "--legal-basis", "", "--notice-locale", "en");
-    expect(h.custUpsert).toHaveBeenCalledWith("c1", { displayName: "Ada", basisNote: null, legalBasis: null, noticeLocale: "en" });
-    expect((await json("customer", "set", "c1", "--legal-basis", "consent")).code).toBe(EXIT.USAGE);
+    await json("customer", "set", "c1", "--display-name", " Ada ", "--email", "", "--notice-locale", "en");
+    expect(h.custUpsert).toHaveBeenCalledWith("c1", { displayName: "Ada", email: null, noticeLocale: "en" });
     expect((await json("customer", "set", "c1", "--notice-locale", "de")).code).toBe(EXIT.USAGE);
+  });
+
+  it("customer set no longer takes --legal-basis: an unknown flag is a usage error and nothing is sent", async () => {
+    h.custUpsert.mockResolvedValue({ customerRef: "c1", created: false });
+    expect((await json("customer", "set", "c1", "--legal-basis", "contract")).code).toBe(EXIT.USAGE);
+    expect(h.custUpsert).not.toHaveBeenCalled();
   });
 
   it("holds sync forwards --max-pages and refuses a bad one", async () => {
