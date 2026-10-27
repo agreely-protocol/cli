@@ -71,6 +71,7 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | `9` | the write **succeeded** but its output could not be saved (`consent-sheet create`: the sheet was minted, the file could not be written). The reference and claim were still printed. Do **not** retry |
 | `10` | check **DENY** - a clean, expected negative, **not** an error |
 | `11` | `verify`: **incomplete** - a bare passkey receipt cannot be tied to the offer it answers. Verify the consent bundle (receipt + signed offer) instead. Not a tamper, never a success |
+| `12` | `verify` with `--onchain`: **withdrawn**. The receipt itself is still cryptographically authentic (it proves consent was given), but the chain shows it has since been withdrawn, for all of its purposes or some (`consentAnchorRecords` says which, with `revokedAt`). The matrix says `WITHDRAWN`. Not a tamper, never a success |
 
 `check` resolves ALLOW→`0` and DENY→`10`. The CLI is **fail-closed**: on an
 outage the SDK throws and the CLI exits `4`, so a caller can tell "outage" from
@@ -393,7 +394,8 @@ confirm, or a date outside either window, exits `6`.
   `4`, never `0`.
 - Exit `0` verified, or `partial` on a telephone receipt; `6` failed or malformed; `2`
   a file that is not JSON; `4` a check could not complete; `11` a bare passkey receipt
-  (verify its bundle). See the exit table.
+  (verify its bundle); `12` withdrawn on chain (authentic, no longer in force as given).
+  See the exit table.
 
 ### `consent-sheet`
 

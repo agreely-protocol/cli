@@ -55,6 +55,11 @@ export const EXIT = {
    * verification bundle issued with it. DISTINCT from a tamper (6) and from an outage (4).
    */
   VERIFY_INCOMPLETE: 11,
+  /**
+   * `agreely verify --onchain`: the consent is authentic and the chain records its withdrawal, for all of its
+   * purposes or some. No longer in force as given. DISTINCT from a success (0), a tamper (6) and an outage (4).
+   */
+  WITHDRAWN: 12,
 } as const;
 
 /** A CLI-side usage error (missing arg, bad flag, no credentials). Maps to exit 2. */

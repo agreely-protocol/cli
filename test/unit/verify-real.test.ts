@@ -2,6 +2,8 @@
 // --did-doc keeps every run air-gapped: an unknown DID resolves to null, never to the network.
 
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +32,17 @@ async function verifyPath(path: string, ...extra: string[]): Promise<Run> {
     json = null;
   }
   return { code, out: io.out(), json };
+}
+
+async function withTempFile(name: string, content: string, body: (path: string) => Promise<void>): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "agreely-cli-verify-"));
+  try {
+    await writeFile(join(dir, name), content);
+    await body(join(dir, name));
+  } finally {
+    await rm(join(dir, name), { force: true });
+    await rm(dir, { recursive: false, force: true }).catch(() => undefined);
+  }
 }
 
 describe("agreely verify exit codes on real files", () => {
@@ -97,17 +110,6 @@ describe("agreely verify exit codes on real files", () => {
 });
 
 describe("agreely verify on hostile files", () => {
-  async function withTempFile(name: string, content: string, body: (path: string) => Promise<void>): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), "agreely-cli-verify-"));
-    try {
-      await writeFile(join(dir, name), content);
-      await body(join(dir, name));
-    } finally {
-      await rm(join(dir, name), { force: true });
-      await rm(dir, { recursive: false, force: true }).catch(() => undefined);
-    }
-  }
-
   it("6, never 1: a paper receipt nested 3000 levels deep is malformed, not a crash", async () => {
     const receipt = JSON.parse(await readFile(fixture("a3v3.receipt.json"), "utf8")) as { credentialSubject: Record<string, unknown> };
     let deep: unknown = "leaf";
@@ -173,6 +175,96 @@ describe("agreely verify on hostile files", () => {
   });
 });
 
+// registry(consentRef) answered by a local JSON-RPC as five words: merkleRoot, anchoredAt, revokedAt, state, block.
+type Cell = { state: 1 | 2; revokedAt: number };
+const REVOKED_AT = Date.UTC(2026, 9, 25, 14, 3, 0) / 1000;
+const word = (n: number): string => n.toString(16).padStart(64, "0");
+
+async function withRegistry(root: string, cells: Record<string, Cell>, fn: (rpcUrl: string) => Promise<void>): Promise<void> {
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
+    req.on("end", () => {
+      const call = JSON.parse(body) as { id: number; params: [{ data: string }] };
+      const cell = cells[`0x${call.params[0].data.slice(-64).toLowerCase()}`];
+      const result = cell
+        ? `0x${root.slice(2)}${word(REVOKED_AT - 86400)}${word(cell.state === 2 ? cell.revokedAt : 0)}${word(cell.state)}${word(53200000)}`
+        : `0x${word(0).repeat(5)}`;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: call.id, result }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await fn(`http://127.0.0.1:${String((server.address() as AddressInfo).port)}/`);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+/** The issued a1v1 bundle, named on the Base mainnet registry the CLI reads, and each cell's on-chain record. */
+async function withWithdrawn(withdrawnCells: number, fn: (path: string, rpcUrl: string) => Promise<void>): Promise<void> {
+  const bundle = JSON.parse(await readFile(fixture("a1v1.bundle.json"), "utf8")) as {
+    merkleRoot: string;
+    consentRefs: string[];
+    didDocuments: { issuer: { delegation: { body: Record<string, unknown> } } };
+  };
+  bundle.didDocuments.issuer.delegation.body["registry"] = "0x6f2cf94045cf0cbdd94338882c34d183575023e9";
+  bundle.didDocuments.issuer.delegation.body["chainId"] = "8453";
+  const cells = Object.fromEntries(
+    bundle.consentRefs.map((ref, i): [string, Cell] => [ref.toLowerCase(), { state: i < withdrawnCells ? 2 : 1, revokedAt: REVOKED_AT }]),
+  );
+  await withTempFile("withdrawn.bundle.json", JSON.stringify(bundle), (path) =>
+    withRegistry(bundle.merkleRoot.toLowerCase(), cells, (rpcUrl) => fn(path, rpcUrl)),
+  );
+}
+
+describe("agreely verify --onchain on an authentic consent the chain records as withdrawn", () => {
+  it("12: exits WITHDRAWN, a code of its own, never 0, 1, 4 or 6", async () => {
+    await withWithdrawn(3, async (path, rpcUrl) => {
+      const { code, json } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl, "--json");
+      expect(json?.["overall"]).toBe("withdrawn");
+      expect(json?.["consentAnchor"]).toBe("withdrawn");
+      expect(code).toBe(EXIT.WITHDRAWN);
+      expect([EXIT.OK, EXIT.ERROR, EXIT.UNAVAILABLE, EXIT.VERIFY_FAILED]).not.toContain(EXIT.WITHDRAWN);
+    });
+  });
+
+  it("the matrix says WITHDRAWN in the web verifier's words, never FAILED", async () => {
+    await withWithdrawn(3, async (path, rpcUrl) => {
+      const { code, out } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl);
+      expect(code).toBe(EXIT.WITHDRAWN);
+      expect(out).toContain("~ WITHDRAWN");
+      expect(out).not.toContain("FAILED");
+      expect(out).not.toContain("✗");
+      expect(out).toContain(
+        "WITHDRAWN: This consent was withdrawn on 2026-10-25T14:03:00Z. The receipt itself is still cryptographically " +
+          "authentic (it proves consent was given), but the chain shows it has since been withdrawn.",
+      );
+    });
+  });
+
+  it("the consentAnchor check line reads withdrawn, never skipped", async () => {
+    await withWithdrawn(3, async (path, rpcUrl) => {
+      const { out } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl);
+      expect(out).toContain("consentAnchor     withdrawn");
+      expect(out).not.toContain("consentAnchor     skipped");
+    });
+  });
+
+  it("12: one purpose of three withdrawn says how many, and that the rest remain active", async () => {
+    await withWithdrawn(1, async (path, rpcUrl) => {
+      const { code, out } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl);
+      expect(code).toBe(EXIT.WITHDRAWN);
+      expect(out).toContain(
+        "WITHDRAWN: 1 of 3 purposes has been withdrawn; the rest remain active per the chain. Most recent withdrawal " +
+          "on-chain on 2026-10-25T14:03:00Z.",
+      );
+    });
+  });
+});
+
 describe("exitFor never reads an unproven overall as success", () => {
   const as = (r: Record<string, unknown>): Parameters<typeof exitFor>[0] => r as unknown as Parameters<typeof exitFor>[0];
 
@@ -194,6 +286,12 @@ describe("exitFor never reads an unproven overall as success", () => {
     expect(exitFor(as({ ...sound, consentAnchor: "pass", documentAnchor: "pass" }), { onchain: true })).toBe(EXIT.OK);
     expect(exitFor(as({ ...sound, overall: "partial", receiptType: "company_documented", disclosureCopy: "unavailable" }), { ipfs: true })).toBe(EXIT.UNAVAILABLE);
     expect(exitFor(as({ ...sound, overall: "failed", consentAnchor: "unavailable" }), { onchain: true })).toBe(EXIT.VERIFY_FAILED);
+  });
+
+  it("withdrawn is 12, and an asked-for anchor that could not complete does not hide it", () => {
+    const withdrawn = { overall: "withdrawn", receiptType: "citizen", consentAnchor: "withdrawn", disclosureCopy: "skipped" };
+    expect(exitFor(as({ ...withdrawn, documentAnchor: "skipped" }), { onchain: true })).toBe(EXIT.WITHDRAWN);
+    expect(exitFor(as({ ...withdrawn, documentAnchor: "unavailable" }), { onchain: true })).toBe(EXIT.WITHDRAWN);
   });
 
   it("an overall this CLI does not know is an error", () => {

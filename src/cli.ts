@@ -245,14 +245,15 @@ export async function run(
   });
 
   // The headline: offline-first verification with an honest pass/trust matrix
-  // (exit 6 = a real tamper or a malformed file; 4 = a check could not complete; 11 = a bare passkey receipt).
+  // (exit 6 = a real tamper or a malformed file; 4 = a check could not complete; 11 = a bare passkey receipt;
+  // 12 = authentic and withdrawn on chain).
   withGlobals(
     program
       .command("verify")
       .description(
         "Verify a consent offline-first from its verification bundle or a receipt; prints the honesty matrix " +
           "(exit 6 tamper or malformed file, 4 unresolvable or an asked-for check incomplete, " +
-          "11 bare passkey receipt: verify the bundle)",
+          "11 bare passkey receipt: verify the bundle, 12 authentic but withdrawn on chain)",
       )
       .argument("<file.json>", "path to the verification bundle (or receipt VC) JSON file")
       .option("--ipfs", "also fetch + compare the IPFS disclosure copy (opt-in network)")

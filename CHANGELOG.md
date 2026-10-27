@@ -17,6 +17,9 @@ Requires `@agreely/sdk` `^0.6.0`.
   covers the acceptance date (`grantedAt`), and that date lies inside the offer's
   window (`createdAt` to `expiresAt`).
 - **`verify --onchain`** also reads the consent anchor in the registry.
+- `verify` exits `12` (`WITHDRAWN`) when the consent is authentic and the chain records its
+  withdrawal, for all of its purposes or some (`overall: "withdrawn"`, read with `--onchain`).
+  The matrix prints `~ WITHDRAWN` and the `consentAnchor` check `withdrawn`.
 - The README documents `verify`, and that a `--did-doc` document is trusted as given:
   take it from the issuer and the citizen tier, never out of the file under test.
 - **`withdraw --other-consents withdraw|keep` and `--also-withdraw <ref,...>`** declare

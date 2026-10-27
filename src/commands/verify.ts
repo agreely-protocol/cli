@@ -16,6 +16,7 @@
 //   "failed"                         -> exit 6   (a check ACTIVELY did not verify: a tamper)
 //   "malformed"                      -> exit 6   (not a file Agreely issued: unreadable, never a tamper)
 //   "unavailable"                    -> exit 4   (a check could NOT complete: inconclusive)
+//   "withdrawn"                      -> exit 12  (authentic, and the chain records its withdrawal: --onchain)
 //   a --onchain or --ipfs check that could not complete turns a 0 into 4: what was
 //   asked for was not proved.
 //
@@ -100,6 +101,8 @@ function exitForOverall(r: ReceiptVerification): number {
       return EXIT.VERIFY_FAILED;
     case "unavailable":
       return EXIT.UNAVAILABLE;
+    case "withdrawn":
+      return EXIT.WITHDRAWN;
     default:
       return EXIT.ERROR;
   }
@@ -133,9 +136,11 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
           ? pc.yellow("~ INCOMPLETE")
           : r.overall === "unavailable"
             ? pc.yellow("? UNAVAILABLE")
-            : r.overall === "malformed"
-              ? pc.red("✗ MALFORMED")
-              : pc.red("✗ FAILED");
+            : r.overall === "withdrawn"
+              ? pc.yellow("~ WITHDRAWN")
+              : r.overall === "malformed"
+                ? pc.red("✗ MALFORMED")
+                : pc.red("✗ FAILED");
   emitLine(ctx, `${verdict}  ${pc.dim(`(${r.receiptType}, read as a ${r.input})`)}`);
   emitLine(ctx, `  companySignature  ${statusLabel(r.companySignature)}`);
   emitLine(ctx, `  receiptIntegrity  ${statusLabel(r.receiptIntegrity)}`);
@@ -161,6 +166,10 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
     );
     emitLine(ctx, "");
   }
+  if (r.overall === "withdrawn") {
+    emitLine(ctx, `  ${pc.yellow("!")} WITHDRAWN: ${withdrawalSentence(r)}`);
+    emitLine(ctx, "");
+  }
   if (r.overall === "malformed") {
     emitLine(
       ctx,
@@ -182,6 +191,23 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
   }
 }
 
+/** The web verifier's English for a withdrawal, from the records the SDK read under the bundle's root. */
+function withdrawalSentence(r: ReceiptVerification): string {
+  const records = r.consentAnchorRecords ?? [];
+  const withdrawn = records.filter((rec) => rec.state === "withdrawn");
+  const latest = Math.max(0, ...withdrawn.map((rec) => rec.revokedAt));
+  const date = latest > 0 ? new Date(latest * 1000).toISOString().replace(".000Z", "Z") : "";
+  const authentic = "The receipt itself is still cryptographically authentic (it proves consent was given)";
+  const k = withdrawn.length;
+  const m = records.length;
+  if (k === 0 || k === m) {
+    return `This consent was withdrawn${date ? ` on ${date}` : ""}. ${authentic}, but the chain shows it has since been withdrawn.`;
+  }
+  const rest = m - k === 1 ? "the other remains active per the chain" : "the rest remain active per the chain";
+  const when = date ? ` Most recent withdrawal on-chain on ${date}.` : "";
+  return `${String(k)} of ${String(m)} purposes ${k === 1 ? "has" : "have"} been withdrawn; ${rest}.${when} ${authentic}.`;
+}
+
 function statusLabel(status: string): string {
   switch (status) {
     case "pass":
@@ -194,6 +220,8 @@ function statusLabel(status: string): string {
       return pc.yellow("unbound");
     case "unsupported":
       return pc.dim("unsupported");
+    case "withdrawn":
+      return pc.yellow("withdrawn");
     default:
       return pc.dim("skipped");
   }
