@@ -193,8 +193,11 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
   if (exitForOverall(r) === EXIT.OK && askedCheckUnavailable(r, asked)) {
     emitLine(
       ctx,
-      `  ${pc.yellow("!")} A CHECK YOU ASKED FOR could not complete (--onchain or --ipfs): it was not proved, so ` +
-        "this exits 4. Retry with connectivity.",
+      consentStillPending(r, asked)
+        ? `  ${pc.yellow("!")} A CHECK YOU ASKED FOR could not complete (--onchain): the chain was read and does not carry ` +
+          "this consent's anchor yet. Anchoring follows issuance by a few minutes, so this exits 4: retry later."
+        : `  ${pc.yellow("!")} A CHECK YOU ASKED FOR could not complete (--onchain or --ipfs): it was not proved, so ` +
+          "this exits 4. Retry with connectivity.",
     );
     emitLine(ctx, "");
   }
@@ -203,12 +206,20 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
   }
 }
 
-/**
- * The SDK says a refused registry only in an anchor check's note. Anchored at the note's start: a CID quoted inside
- * another note cannot fake it.
- */
 function registryRefused(r: ReceiptVerification): boolean {
-  return r.notes.some((note) => /^(documentAnchor|consentAnchor) UNAVAILABLE: unknown registry: /.test(note));
+  return r.registryRefused === true;
+}
+
+/**
+ * The consent's cells were read and none is anchored yet (no unreadable cell), and no other check the operator asked
+ * for is unavailable: the chain answered, the anchor is simply not there yet.
+ */
+function consentStillPending(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs">): boolean {
+  const counts = r.consentAnchorCounts;
+  if (r.consentAnchor !== "unavailable" || !counts || counts.pending === 0 || counts.unreadable !== 0) return false;
+  const otherAskedUnavailable =
+    (asked.onchain === true && r.documentAnchor === "unavailable") || (asked.ipfs === true && r.disclosureCopy === "unavailable");
+  return !otherAskedUnavailable;
 }
 
 /** The web verifier's English for a withdrawal, from the records the SDK read under the bundle's root. */
@@ -220,6 +231,17 @@ function withdrawalSentence(r: ReceiptVerification): string {
   const authentic = "The receipt itself is still cryptographically authentic (it proves consent was given)";
   const k = withdrawn.length;
   const m = records.length;
+  // Cells not anchored yet or unreadable are not withdrawn and not active: say so, in the web verifier's readable words.
+  const counts = r.consentAnchorCounts;
+  const unseen = (counts?.pending ?? 0) + (counts?.unreadable ?? 0);
+  if (unseen > 0 && k > 0) {
+    if (k === m && date) {
+      return `The purposes that could be read from the chain were withdrawn (latest withdrawal on ${date}). ${authentic}.`;
+    }
+    const total = counts?.cells ?? m;
+    const head = k === 1 ? `${String(k)} of ${String(total)} purposes has been withdrawn on-chain.` : `${String(k)} of ${String(total)} purposes have been withdrawn on-chain.`;
+    return `${head}${date ? ` Most recent withdrawal on-chain on ${date}.` : ""} ${authentic}.`;
+  }
   if (k === 0 || k === m) {
     return `This consent was withdrawn${date ? ` on ${date}` : ""}. ${authentic}, but the chain shows it has since been withdrawn.`;
   }

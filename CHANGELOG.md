@@ -20,6 +20,8 @@ Requires `@agreely/sdk` `^0.6.0`.
 - `verify` exits `12` (`WITHDRAWN`) when the consent is authentic and the chain records its
   withdrawal, for all of its purposes or some (`overall: "withdrawn"`, read with `--onchain`).
   The matrix prints `~ WITHDRAWN` and the `consentAnchor` check `withdrawn`.
+- `verify --onchain` says "retry later" (not "retry with connectivity") when the chain answered and
+  the consent's cells are not anchored yet: it exits `4` either way.
 - The README documents `verify`, and that a `--did-doc` document is trusted as given:
   take it from the issuer and the citizen tier, never out of the file under test.
 - **`withdraw --other-consents withdraw|keep` and `--also-withdraw <ref,...>`** declare

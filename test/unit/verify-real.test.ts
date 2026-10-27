@@ -217,8 +217,14 @@ async function withRegistry(root: string, cells: Record<string, Cell>, fn: (rpcU
   }
 }
 
-/** The issued a1v1 bundle, named on the Base mainnet registry the CLI reads, and each cell's on-chain record. */
-async function withWithdrawn(withdrawnCells: number, fn: (path: string, rpcUrl: string) => Promise<void>): Promise<void> {
+/**
+ * The issued a1v1 bundle, named on the Base mainnet registry the CLI reads, with the cells the chain holds as
+ * `cellsFor` chooses them from the bundle's consent refs. A ref it leaves out is not anchored yet.
+ */
+async function withChainCells(
+  cellsFor: (refs: string[]) => Record<string, Cell>,
+  fn: (path: string, rpcUrl: string) => Promise<void>,
+): Promise<void> {
   const bundle = JSON.parse(await readFile(fixture("a1v1.bundle.json"), "utf8")) as {
     merkleRoot: string;
     consentRefs: string[];
@@ -226,11 +232,17 @@ async function withWithdrawn(withdrawnCells: number, fn: (path: string, rpcUrl: 
   };
   bundle.didDocuments.issuer.delegation.body["registry"] = "0x6f2cf94045cf0cbdd94338882c34d183575023e9";
   bundle.didDocuments.issuer.delegation.body["chainId"] = "8453";
-  const cells = Object.fromEntries(
-    bundle.consentRefs.map((ref, i): [string, Cell] => [ref.toLowerCase(), { state: i < withdrawnCells ? 2 : 1, revokedAt: REVOKED_AT }]),
-  );
+  const cells = cellsFor(bundle.consentRefs.map((ref) => ref.toLowerCase()));
   await withTempFile("withdrawn.bundle.json", JSON.stringify(bundle), (path) =>
     withRegistry(bundle.merkleRoot.toLowerCase(), cells, (rpcUrl) => fn(path, rpcUrl)),
+  );
+}
+
+/** The first `withdrawnCells` refs are withdrawn, the others active. */
+async function withWithdrawn(withdrawnCells: number, fn: (path: string, rpcUrl: string) => Promise<void>): Promise<void> {
+  await withChainCells(
+    (refs) => Object.fromEntries(refs.map((ref, i): [string, Cell] => [ref, { state: i < withdrawnCells ? 2 : 1, revokedAt: REVOKED_AT }])),
+    fn,
   );
 }
 
@@ -272,6 +284,32 @@ describe("agreely verify --onchain on an authentic consent the chain records as 
       expect(out).toContain("1 of 3 purposes has been withdrawn");
       expect(out).toContain("2026-10-25T14:03:00Z");
     });
+  });
+});
+
+describe("agreely verify --onchain on a consent the chain does not carry yet", () => {
+  it("4: the chain answers, no cell is anchored yet, and the advice is to retry later, never to retry with connectivity", async () => {
+    await withChainCells(
+      () => ({}),
+      async (path, rpcUrl) => {
+        const { code, out } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl);
+        expect(code).toBe(EXIT.UNAVAILABLE);
+        expect(out).toContain("retry later");
+        expect(out).not.toContain("Retry with connectivity");
+      },
+    );
+  });
+
+  it("12: one purpose withdrawn and the rest not anchored yet says it in the readable words", async () => {
+    await withChainCells(
+      (refs) => ({ [refs[0]!]: { state: 2, revokedAt: REVOKED_AT } }),
+      async (path, rpcUrl) => {
+        const { code, out } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl);
+        expect(code).toBe(EXIT.WITHDRAWN);
+        expect(out).toContain("were withdrawn (latest withdrawal on 2026-10-25T14:03:00Z)");
+        expect(out).not.toContain("This consent was withdrawn");
+      },
+    );
   });
 });
 
