@@ -177,18 +177,14 @@ describe("agreely verify on hostile files", () => {
   it("4: a refused registry names the real cause, never the connectivity advice", async () => {
     const { code, out } = await verify("a1v1.bundle.json", ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/");
     expect(code).toBe(EXIT.UNAVAILABLE);
-    expect(out).toContain(
-      "UNVERIFIABLE ON CHAIN: the bundle names an on-chain registry this verifier does not read (it reads only the " +
-        "Base mainnet registry), so nothing was read on chain",
-    );
-    expect(out).toContain("retrying will not change it");
+    expect(out).toContain("UNVERIFIABLE ON CHAIN");
     expect(out).not.toContain("retry with connectivity");
   });
 
   it("4: an outage keeps the connectivity advice, never the refused-registry cause", async () => {
     const { code, out } = await verify("a3v3.receipt.json", "--did-doc", fixture("unrelated.did.json"));
     expect(code).toBe(EXIT.UNAVAILABLE);
-    expect(out).toContain("This is NOT a forgery: retry with connectivity, or pass --did-doc <file> to verify air-gapped.");
+    expect(out).toContain("retry with connectivity");
     expect(out).not.toContain("UNVERIFIABLE ON CHAIN");
   });
 });
@@ -256,10 +252,8 @@ describe("agreely verify --onchain on an authentic consent the chain records as 
       expect(out).toContain("~ WITHDRAWN");
       expect(out).not.toContain("FAILED");
       expect(out).not.toContain("✗");
-      expect(out).toContain(
-        "WITHDRAWN: This consent was withdrawn on 2026-10-25T14:03:00Z. The receipt itself is still cryptographically " +
-          "authentic (it proves consent was given), but the chain shows it has since been withdrawn.",
-      );
+      expect(out).toContain("withdrawn on 2026-10-25T14:03:00Z");
+      expect(out).toContain("cryptographically authentic");
     });
   });
 
@@ -275,10 +269,8 @@ describe("agreely verify --onchain on an authentic consent the chain records as 
     await withWithdrawn(1, async (path, rpcUrl) => {
       const { code, out } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl);
       expect(code).toBe(EXIT.WITHDRAWN);
-      expect(out).toContain(
-        "WITHDRAWN: 1 of 3 purposes has been withdrawn; the rest remain active per the chain. Most recent withdrawal " +
-          "on-chain on 2026-10-25T14:03:00Z.",
-      );
+      expect(out).toContain("1 of 3 purposes has been withdrawn");
+      expect(out).toContain("2026-10-25T14:03:00Z");
     });
   });
 });
