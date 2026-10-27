@@ -392,6 +392,11 @@ confirm, or a date outside either window, exits `6`.
   consent anchors; `--ipfs` also fetches and compares the IPFS disclosure copy. Both
   are opt-in network calls, and a check you asked for that could not complete exits
   `4`, never `0`.
+- `--onchain` reads only the Base mainnet registry. A bundle whose issuer key delegation
+  names another registry or chain (a bundle anchored on Base Sepolia, for one) is refused
+  before any call: the anchor checks read `unavailable`, a note says `unknown registry`,
+  and it exits `4`. That is not a forgery and retrying does not change it; without
+  `--onchain` the bundle is still checked offline.
 - Exit `0` verified, or `partial` on a telephone receipt; `6` failed or malformed; `2`
   a file that is not JSON; `4` a check could not complete; `11` a bare passkey receipt
   (verify its bundle); `12` withdrawn on chain (authentic, no longer in force as given).
