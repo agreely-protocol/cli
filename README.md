@@ -22,7 +22,7 @@ agreely --help
 
 ### Build from source (for local development)
 
-The CLI depends on the published `@agreely/sdk` (`^0.5.0`):
+The CLI depends on the published `@agreely/sdk` (`^0.6.0`):
 
 ```sh
 npm install && npm run build
@@ -394,9 +394,11 @@ confirm, or a date outside either window, exits `6`.
   `4`, never `0`.
 - `--onchain` reads only the Base mainnet registry. A bundle whose issuer key delegation
   names another registry or chain (a bundle anchored on Base Sepolia, for one) is refused
-  before any call: the anchor checks read `unavailable`, a note says `unknown registry`,
-  and it exits `4`. That is not a forgery and retrying does not change it; without
-  `--onchain` the bundle is still checked offline.
+  before any call when a check would read the chain: a receipt with a `document.ipfsCid`, or
+  a bundle with a `consentRef`. Those anchor checks read `unavailable`, a note says `unknown
+  registry`, and it exits `4`. That is not a forgery and retrying does not change it. A bundle
+  with neither reads nothing on chain (`a3v3.bundle.json`, for one, still reads `verified`);
+  without `--onchain` the bundle is still checked offline.
 - Exit `0` verified, or `partial` on a telephone receipt; `6` failed or malformed; `2`
   a file that is not JSON; `4` a check could not complete; `11` a bare passkey receipt
   (verify its bundle); `12` withdrawn on chain (authentic, no longer in force as given).
@@ -487,8 +489,9 @@ MIT-licensed and built to be provable, not just trusted:
   the OS keychain (optional `keytar`), or a `0600` config file, and is sent only
   as the `Authorization: Bearer` header to your configured API. It is never
   logged (it is masked for display) and never sent anywhere else.
-- **Minimal deps, no install scripts.** `@agreely/sdk`, `commander`,
-  `@clack/prompts`, `picocolors`, and an optional `keytar`.
+- **Minimal deps.** `@agreely/sdk`, `commander`, `@clack/prompts`, `picocolors`, and an
+  optional `keytar`. The CLI has no install scripts of its own; the optional `keytar` runs
+  `prebuild-install || npm run build` when it is installed.
 
 Agreely records and structures consent; it does not certify that your
 organization is compliant.

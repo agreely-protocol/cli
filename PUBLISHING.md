@@ -1,48 +1,6 @@
 # Publishing `@agreely/cli` (npm)
 
-First public release: `0.1.0`. The CLI is a thin shell over `@agreely/sdk` and
-inherits its network defaults (Base mainnet, chainId 8453). The CLI itself
-hardcodes no contract address.
+Publish the SDK first, then the CLI against it:
 
-## Blockers before publish (must be resolved, in order)
-
-1. **Publish `@agreely/sdk` first.** Its mainnet registry address is pinned by
-   hand and must be re-checked against the live deployment before every release
-   (Base mainnet chainId 8453, currently `0x23577fafFa306375028D33a559D0F95Ced9424DB` - see that
-   package's `PUBLISHING.md` for the two verification commands). The CLI's default
-   on-chain behavior comes entirely from the installed SDK; the CLI itself pins no
-   contract address.
-
-2. **Swap the local path dependency for the published version.** Right now, for
-   local build/test, `package.json` uses:
-
-   ```json
-   "@agreely/sdk": "file:../agreely-sdk/ts"
-   ```
-
-   A `file:` dependency is NOT publishable. After `@agreely/sdk@0.1.0` is on
-   npm, change this to:
-
-   ```json
-   "@agreely/sdk": "^0.1.0"
-   ```
-
-   then `npm install` and rebuild before publishing.
-
-## Publish steps
-
-```sh
-npm ci
-npm run build          # regenerates dist/bin.js (ESM, shebang, chmod +x)
-npm test               # unit suite must be green
-npm publish --access public
-```
-
-Notes:
-- The `@agreely` npm org must exist and be owned by the publisher. `@agreely`
-  is a **scoped** package; `publishConfig.access` is set to `public`, and
-  `--access public` is passed explicitly.
-- `files` ships `dist`, `README.md`, and `LICENSE` only. The `bin` entry
-  (`agreely` -> `dist/bin.js`) is a built artifact.
-- Keep the version at `0.1.0`. Do not create a git tag here; the human tags at
-  publish time.
+1. Publish the SDK first: `cd ~/www/agreely-sdk && npm publish --access public`
+2. Then here: `npm install @agreely/sdk@^0.6.0 && npm test && npm publish --access public`, and commit the lockfile.

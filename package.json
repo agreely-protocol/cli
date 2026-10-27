@@ -3,6 +3,12 @@
   "version": "0.5.0",
   "description": "The Agreely CLI: a one-call consent gate for humans (interactive) and agents (scriptable JSON). A thin shell over @agreely/sdk.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agreely-protocol/cli.git"
+  },
+  "homepage": "https://github.com/agreely-protocol/cli#readme",
+  "bugs": "https://github.com/agreely-protocol/cli/issues",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -21,6 +27,7 @@
   },
   "scripts": {
     "build": "tsup && chmod +x dist/bin.js",
+    "prepublishOnly": "npm run typecheck && npm run build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run test/unit",

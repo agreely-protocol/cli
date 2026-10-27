@@ -197,7 +197,7 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
         ? `  ${pc.yellow("!")} A CHECK YOU ASKED FOR could not complete (--onchain): the chain was read and does not carry ` +
           "this consent's anchor yet. Anchoring follows issuance by a few minutes, so this exits 4: retry later."
         : `  ${pc.yellow("!")} A CHECK YOU ASKED FOR could not complete (--onchain or --ipfs): it was not proved, so ` +
-          "this exits 4. Retry with connectivity.",
+          "this exits 4. Retry later: the network may not have answered, or the anchor may not be on chain yet.",
     );
     emitLine(ctx, "");
   }
