@@ -245,19 +245,24 @@ export async function run(
   });
 
   // The headline: offline-first verification with an honest pass/trust matrix
-  // (exit 6 = a real tamper or a malformed file; 4 = a check could not complete; 11 = a bare passkey receipt;
-  // 12 = authentic and withdrawn on chain).
+  // (exit 0 = verified, and with --onchain read in force on chain; 6 = a real tamper or a malformed file;
+  // 4 = a check could not complete; 11 = a bare passkey receipt; 12 = authentic and withdrawn on chain).
   withGlobals(
     program
       .command("verify")
       .description(
         "Verify a consent offline-first from its verification bundle or a receipt; prints the honesty matrix " +
-          "(exit 6 tamper or malformed file, 4 unresolvable or an asked-for check incomplete, " +
-          "11 bare passkey receipt: verify the bundle, 12 authentic but withdrawn on chain)",
+          "(exit 0 verified, and with --onchain only when the chain reads the consent in force; " +
+          "6 tamper or malformed file; 4 unresolvable, an asked-for check incomplete, or --onchain could not " +
+          "read the withdrawal; 11 bare passkey receipt: verify the bundle; 12 authentic but withdrawn on chain)",
       )
       .argument("<file.json>", "path to the verification bundle (or receipt VC) JSON file")
       .option("--ipfs", "also fetch + compare the IPFS disclosure copy (opt-in network)")
-      .option("--onchain", "also check the on-chain document and consent anchors (needs --rpc-url / AGREELY_RPC_URL)")
+      .option(
+        "--onchain",
+        "also check the on-chain document and consent anchors and whether the consent is still in force " +
+          "(needs --rpc-url / AGREELY_RPC_URL, e.g. https://base-rpc.publicnode.com)",
+      )
       .option("--rpc-url <url>", "JSON-RPC URL for the --onchain check")
       .option(
         "--did-doc <file>",

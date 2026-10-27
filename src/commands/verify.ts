@@ -18,7 +18,8 @@
 //   "unavailable"                    -> exit 4   (a check could NOT complete: inconclusive)
 //   "withdrawn"                      -> exit 12  (authentic, and the chain records its withdrawal: --onchain)
 //   a --onchain or --ipfs check that could not complete turns a 0 into 4: what was
-//   asked for was not proved.
+//   asked for was not proved. With --onchain, a 0 also needs the chain to read the
+//   consent in force (withdrawal "active"): a withdrawal it could not read is a 4.
 //
 // --did-doc documents are TRUSTED AS GIVEN: they supply the signing keys. Take them from
 // the issuer and citizen, never out of the file under test.
@@ -80,7 +81,12 @@ export async function verifyCommand(ctx: Context, path: string, flags: VerifyFla
  */
 export function exitFor(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs"> = {}): number {
   const code = exitForOverall(r);
-  return code === EXIT.OK && askedCheckUnavailable(r, asked) ? EXIT.UNAVAILABLE : code;
+  return code === EXIT.OK && (askedCheckUnavailable(r, asked) || withdrawalUnread(r, asked)) ? EXIT.UNAVAILABLE : code;
+}
+
+/** --onchain asks whether the consent is still in force: only a chain that read it so is a 0. */
+function withdrawalUnread(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain">): boolean {
+  return asked.onchain === true && r.withdrawal !== "active";
 }
 
 function askedCheckUnavailable(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs">): boolean {
@@ -149,6 +155,7 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
   emitLine(ctx, `  documentAnchor    ${statusLabel(r.documentAnchor)}`);
   emitLine(ctx, `  consentAnchor     ${statusLabel(r.consentAnchor)}`);
   emitLine(ctx, `  cellLabelBinding  ${statusLabel(r.cellLabelBinding)}`);
+  emitLine(ctx, `  withdrawal        ${withdrawalLabel(r.withdrawal)}`);
   emitLine(ctx, "");
   if (r.overall === "incomplete") {
     emitLine(
@@ -200,6 +207,18 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
           "this exits 4. Retry later: the network may not have answered, or the anchor may not be on chain yet.",
     );
     emitLine(ctx, "");
+  } else if (exitForOverall(r) === EXIT.OK && r.withdrawal !== "active") {
+    emitLine(
+      ctx,
+      asked.onchain === true
+        ? `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED (--onchain): this file names no consent record this verifier reads on ` +
+          "chain (it reads one from a passkey consent's verification bundle only), so whether the consent was since " +
+          "withdrawn is not proved and this exits 4. This is NOT a forgery, and retrying will not change it."
+        : `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED: this verify did not read the chain, so it says nothing of a ` +
+          "withdrawal since the consent was given. For a passkey consent's verification bundle, add " +
+          "--onchain --rpc-url https://base-rpc.publicnode.com to read it.",
+    );
+    emitLine(ctx, "");
   }
   for (const note of r.notes) {
     emitLine(ctx, `  ${pc.dim("·")} ${note}`);
@@ -248,6 +267,17 @@ function withdrawalSentence(r: ReceiptVerification): string {
   const rest = m - k === 1 ? "the other remains active per the chain" : "the rest remain active per the chain";
   const when = date ? ` Most recent withdrawal on-chain on ${date}.` : "";
   return `${String(k)} of ${String(m)} purposes ${k === 1 ? "has" : "have"} been withdrawn; ${rest}.${when} ${authentic}.`;
+}
+
+function withdrawalLabel(withdrawal: string): string {
+  switch (withdrawal) {
+    case "active":
+      return pc.green("active");
+    case "withdrawn":
+      return pc.yellow("withdrawn");
+    default:
+      return pc.dim("not checked");
+  }
 }
 
 function statusLabel(status: string): string {

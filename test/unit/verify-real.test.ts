@@ -252,6 +252,8 @@ describe("agreely verify --onchain on an authentic consent the chain records as 
       const { code, json } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl, "--json");
       expect(json?.["overall"]).toBe("withdrawn");
       expect(json?.["consentAnchor"]).toBe("withdrawn");
+      expect(json?.["withdrawal"]).toBe("withdrawn");
+      expect(json?.["withdrawnAt"]).toBe(REVOKED_AT);
       expect(code).toBe(EXIT.WITHDRAWN);
       expect([EXIT.OK, EXIT.ERROR, EXIT.UNAVAILABLE, EXIT.VERIFY_FAILED]).not.toContain(EXIT.WITHDRAWN);
     });
@@ -313,6 +315,68 @@ describe("agreely verify --onchain on a consent the chain does not carry yet", (
   });
 });
 
+describe("agreely verify says whether the consent is still in force", () => {
+  it("0 offline, and the matrix says the withdrawal was not checked and how to check it", async () => {
+    const { code, json } = await verify("a1v1.bundle.json", ...DOCS, "--json");
+    expect(json?.["overall"]).toBe("verified");
+    expect(json?.["withdrawal"]).toBe("not_checked");
+    expect(code).toBe(EXIT.OK);
+
+    const human = await verify("a1v1.bundle.json", ...DOCS);
+    expect(human.code).toBe(EXIT.OK);
+    expect(human.out).toContain("withdrawal        not checked");
+    expect(human.out).toContain("WITHDRAWAL NOT CHECKED");
+    expect(human.out).toContain("--onchain --rpc-url https://base-rpc.publicnode.com");
+  });
+
+  it("0 with --onchain once the chain reads every purpose in force", async () => {
+    await withChainCells(
+      (refs) => Object.fromEntries(refs.map((ref): [string, Cell] => [ref, { state: 1, revokedAt: 0 }])),
+      async (path, rpcUrl) => {
+        const { code, json } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl, "--json");
+        expect(json?.["overall"]).toBe("verified");
+        expect(json?.["withdrawal"]).toBe("active");
+        expect(code).toBe(EXIT.OK);
+
+        const human = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", rpcUrl);
+        expect(human.code).toBe(EXIT.OK);
+        expect(human.out).toContain("withdrawal        active");
+        expect(human.out).not.toContain("WITHDRAWAL NOT CHECKED");
+      },
+    );
+  });
+
+  it("4, never 0: --onchain on a paper receipt, whose withdrawal this verifier does not read on chain", async () => {
+    const extra = [...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/"];
+    const { code, json } = await verify("a3v3.receipt.json", ...extra, "--json");
+    expect(json?.["overall"]).toBe("verified");
+    expect(json?.["withdrawal"]).toBe("not_checked");
+    expect(code).toBe(EXIT.UNAVAILABLE);
+
+    const human = await verify("a3v3.receipt.json", ...extra);
+    expect(human.code).toBe(EXIT.UNAVAILABLE);
+    expect(human.out).toContain("WITHDRAWAL NOT CHECKED (--onchain)");
+    expect(human.out).toContain("retrying will not change it");
+    expect(human.out).not.toContain("A CHECK YOU ASKED FOR");
+  });
+
+  it("6: a passkey receipt carrying a field the issuer never writes is MALFORMED, never FAILED", async () => {
+    const bundle = JSON.parse(await readFile(fixture("a1v1.bundle.json"), "utf8")) as {
+      receipt: { credentialSubject: { consent: Record<string, unknown> } };
+    };
+    bundle.receipt.credentialSubject.consent["status"] = "active";
+    await withTempFile("field.bundle.json", JSON.stringify(bundle), async (path) => {
+      const { code, json } = await verifyPath(path, ...DOCS, "--json");
+      expect(json?.["overall"]).toBe("malformed");
+      expect(code).toBe(EXIT.VERIFY_FAILED);
+
+      const human = await verifyPath(path, ...DOCS);
+      expect(human.out).toContain("✗ MALFORMED");
+      expect(human.out).not.toContain("✗ FAILED");
+    });
+  });
+});
+
 describe("exitFor never reads an unproven overall as success", () => {
   const as = (r: Record<string, unknown>): Parameters<typeof exitFor>[0] => r as unknown as Parameters<typeof exitFor>[0];
 
@@ -326,7 +390,7 @@ describe("exitFor never reads an unproven overall as success", () => {
   });
 
   it("an asked-for check that is unavailable turns 0 into 4, and only an asked-for one", () => {
-    const sound = { overall: "verified", receiptType: "citizen_signed", documentAnchor: "skipped", consentAnchor: "skipped", disclosureCopy: "skipped" };
+    const sound = { overall: "verified", receiptType: "citizen_signed", documentAnchor: "skipped", consentAnchor: "skipped", disclosureCopy: "skipped", withdrawal: "active" };
     expect(exitFor(as({ ...sound, consentAnchor: "unavailable" }), { onchain: true })).toBe(EXIT.UNAVAILABLE);
     expect(exitFor(as({ ...sound, documentAnchor: "unavailable" }), { onchain: true })).toBe(EXIT.UNAVAILABLE);
     expect(exitFor(as({ ...sound, disclosureCopy: "unavailable" }), { ipfs: true })).toBe(EXIT.UNAVAILABLE);
@@ -340,6 +404,15 @@ describe("exitFor never reads an unproven overall as success", () => {
     const withdrawn = { overall: "withdrawn", receiptType: "citizen", consentAnchor: "withdrawn", disclosureCopy: "skipped" };
     expect(exitFor(as({ ...withdrawn, documentAnchor: "skipped" }), { onchain: true })).toBe(EXIT.WITHDRAWN);
     expect(exitFor(as({ ...withdrawn, documentAnchor: "unavailable" }), { onchain: true })).toBe(EXIT.WITHDRAWN);
+  });
+
+  it("with --onchain, 0 needs the chain to read the consent in force; offline, an unread withdrawal stays 0", () => {
+    const sound = { overall: "verified", receiptType: "company_attested", documentAnchor: "pass", consentAnchor: "skipped", disclosureCopy: "skipped" };
+    expect(exitFor(as({ ...sound, withdrawal: "not_checked" }))).toBe(EXIT.OK);
+    expect(exitFor(as({ ...sound, withdrawal: "not_checked" }), { onchain: true })).toBe(EXIT.UNAVAILABLE);
+    expect(exitFor(as(sound), { onchain: true })).toBe(EXIT.UNAVAILABLE);
+    expect(exitFor(as({ ...sound, overall: "partial", receiptType: "company_documented", withdrawal: "not_checked" }), { onchain: true })).toBe(EXIT.UNAVAILABLE);
+    expect(exitFor(as({ ...sound, consentAnchor: "pass", withdrawal: "active" }), { onchain: true })).toBe(EXIT.OK);
   });
 
   it("an overall this CLI does not know is an error", () => {

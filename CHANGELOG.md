@@ -3,6 +3,22 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## 0.5.1 - Unreleased
+
+Requires `@agreely/sdk` `^0.6.1`.
+
+### Changed
+
+- `verify --onchain` exits `0` only when the chain also reads the consent in force
+  (`withdrawal: "active"`). A withdrawal it could not read exits `4`, and the matrix says
+  `WITHDRAWAL NOT CHECKED`.
+- `verify` prints a `withdrawal` line (`active`, `withdrawn` or `not checked`), and its
+  JSON carries the SDK's `withdrawal` and, when the chain records it, `withdrawnAt`.
+- `verify` exits `6` on a passkey receipt carrying a field the issuer never writes
+  (`malformed`), and `4` under `--onchain` on a bundle whose consentRefs leave an accepted
+  purpose unnamed.
+- The README's `--onchain` example uses `https://base-rpc.publicnode.com`.
+
 ## 0.5.0 - 2026-10-27
 
 Requires `@agreely/sdk` `^0.6.0`.

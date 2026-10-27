@@ -59,11 +59,11 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 
 | code | meaning |
 | --- | --- |
-| `0` | success / check **ALLOW** / `verify`: a bundle or a paper receipt reads `verified`, or a telephone receipt reads `partial` (the organisation's signed word, sound). Never for a bare passkey receipt |
+| `0` | success / check **ALLOW** / `verify`: a bundle or a paper receipt reads `verified`, or a telephone receipt reads `partial` (the organisation's signed word, sound); with `--onchain`, only when the chain also reads the consent in force (`withdrawal: "active"`). Never for a bare passkey receipt |
 | `1` | an unexpected/uncategorized failure |
 | `2` | usage or validation error (bad/missing args, invalid input including a `413`, no credentials), a `404`, or a `409` state conflict (envelope code is the specific code, else `conflict`; `retry` means a concurrent retry could not be settled: retry with the same key) |
 | `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
-| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write that takes a key (see Writes) the envelope carries `idempotencyKey`: retry with that SAME key. `verify`: a check could not complete (a DID could not be resolved), or a check you asked for with `--onchain` or `--ipfs` could not complete, even when everything else verified |
+| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write that takes a key (see Writes) the envelope carries `idempotencyKey`: retry with that SAME key. `verify`: a check could not complete (a DID could not be resolved), or a check you asked for with `--onchain` or `--ipfs` could not complete, even when everything else verified, or `--onchain` could not read whether the consent is still in force (`withdrawal: "not_checked"`: a paper or telephone receipt, or a bundle naming no consent record; retrying does not change that) |
 | `5` | rate-limited - the per-company per-minute window was exceeded (retry after the delay) |
 | `6` | `verify`: a bundle or receipt was checked and did **not** verify (a verdict, not an error), or the file is **malformed** (JSON that is not a version `"1"` bundle or a receipt this verifier can read, so no check ran: the matrix says `MALFORMED`, never a tamper). A file that is not JSON exits `2` |
 | `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
@@ -367,7 +367,8 @@ Delivery is at least once.
 
 ```sh
 agreely verify ./consent-bundle.json --did-doc ./issuer.did.json --did-doc ./citizen.did.json
-agreely verify ./consent-bundle.json --onchain --rpc-url https://mainnet.base.org --json
+agreely verify ./consent-bundle.json --did-doc ./issuer.did.json --did-doc ./citizen.did.json \
+  --onchain --rpc-url https://base-rpc.publicnode.com --json
 ```
 
 Verifies a consent from the verification bundle a passkey consent issues (receipt,
@@ -397,12 +398,26 @@ confirm, or a date outside either window, exits `6`.
   before any call when a check would read the chain: a receipt with a `document.ipfsCid`, or
   a bundle with a `consentRef`. Those anchor checks read `unavailable`, a note says `unknown
   registry`, and it exits `4`. That is not a forgery and retrying does not change it. A bundle
-  with neither reads nothing on chain (`a3v3.bundle.json`, for one, still reads `verified`);
-  without `--onchain` the bundle is still checked offline.
-- Exit `0` verified, or `partial` on a telephone receipt; `6` failed or malformed; `2`
-  a file that is not JSON; `4` a check could not complete; `11` a bare passkey receipt
-  (verify its bundle); `12` withdrawn on chain (authentic, no longer in force as given).
-  See the exit table.
+  with neither reads nothing on chain (`a3v3.bundle.json`, for one, still reads `verified`,
+  with `withdrawal: "not_checked"`, so it exits `4`); without `--onchain` the bundle is still
+  checked offline.
+- **Withdrawal.** The verdict says whether the receipt is authentic; `withdrawal` says
+  whether the consent is still in force: `active` once the chain read every accepted
+  purpose and none is withdrawn, `withdrawn` when the chain records a withdrawal (exit
+  `12`, with `withdrawnAt` in unix seconds when the record carries it), and `not_checked`
+  otherwise. Without `--onchain` it always reads `not_checked`, and a verified consent
+  exits `0` with the line `WITHDRAWAL NOT CHECKED`: a withdrawn consent verified offline
+  still reads `verified`. To accept a consent only while it is in force, verify its
+  bundle with `--onchain` and accept exit `0` alone. This verifier reads the on-chain
+  record from a passkey consent's verification bundle only: a paper or telephone receipt
+  reads `not_checked` and exits `4` under `--onchain` (the Agreely `/verify` page reads it
+  for a version 4 paper or telephone receipt).
+- Exit `0` verified, or `partial` on a telephone receipt, and with `--onchain` only when
+  the chain reads the consent in force; `6` failed or malformed (a passkey receipt carrying
+  a field the issuer never writes included); `2` a file that is not JSON; `4` a check
+  could not complete, or `--onchain` could not read the withdrawal; `11` a bare passkey
+  receipt (verify its bundle); `12` withdrawn on chain (authentic, no longer in force as
+  given). See the exit table.
 
 ### `consent-sheet`
 
