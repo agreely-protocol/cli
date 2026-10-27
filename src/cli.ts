@@ -51,7 +51,7 @@ import { EXIT, exitCodeForError } from "./errors.js";
 import { defaultIo, type Io } from "./io.js";
 import { reportError } from "./output.js";
 
-export const VERSION = "0.5.0";
+export const VERSION = "0.5.1";
 
 /** Attach the shared auth/output flags so they work before OR after a subcommand. */
 function withGlobals(cmd: Command): Command {
