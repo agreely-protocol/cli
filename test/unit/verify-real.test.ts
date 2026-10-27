@@ -173,6 +173,24 @@ describe("agreely verify on hostile files", () => {
     expect((json?.["notes"] as string[]).join("\n")).toContain("unknown registry: the bundle names the registry 0x3532a9dff3c910152543afca49de7c66113c5312");
     expect(code).toBe(EXIT.UNAVAILABLE);
   });
+
+  it("4: a refused registry names the real cause, never the connectivity advice", async () => {
+    const { code, out } = await verify("a1v1.bundle.json", ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/");
+    expect(code).toBe(EXIT.UNAVAILABLE);
+    expect(out).toContain(
+      "UNVERIFIABLE ON CHAIN: the bundle names an on-chain registry this verifier does not read (it reads only the " +
+        "Base mainnet registry), so nothing was read on chain",
+    );
+    expect(out).toContain("retrying will not change it");
+    expect(out).not.toContain("retry with connectivity");
+  });
+
+  it("4: an outage keeps the connectivity advice, never the refused-registry cause", async () => {
+    const { code, out } = await verify("a3v3.receipt.json", "--did-doc", fixture("unrelated.did.json"));
+    expect(code).toBe(EXIT.UNAVAILABLE);
+    expect(out).toContain("This is NOT a forgery: retry with connectivity, or pass --did-doc <file> to verify air-gapped.");
+    expect(out).not.toContain("UNVERIFIABLE ON CHAIN");
+  });
 });
 
 // registry(consentRef) answered by a local JSON-RPC as five words: merkleRoot, anchoredAt, revokedAt, state, block.

@@ -159,11 +159,23 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
     emitLine(ctx, "");
   }
   if (r.overall === "unavailable") {
-    emitLine(
-      ctx,
-      `  ${pc.yellow("!")} UNVERIFIABLE: a check could not complete (a DID could not be resolved, or an RPC or ` +
-        "gateway failed). This is NOT a forgery: retry with connectivity, or pass --did-doc <file> to verify air-gapped.",
-    );
+    const refused = registryRefused(r);
+    if (refused) {
+      emitLine(
+        ctx,
+        `  ${pc.yellow("!")} UNVERIFIABLE ON CHAIN: the bundle names an on-chain registry this verifier does not read ` +
+          "(it reads only the Base mainnet registry), so nothing was read on chain and the consent is not shown as " +
+          "verified. This is NOT a forgery, and retrying will not change it. Without --onchain, the signatures are " +
+          "still checked offline.",
+      );
+    }
+    if (!refused || [r.companySignature, r.receiptIntegrity, r.citizenAssertion, r.disclosureCopy].includes("unavailable")) {
+      emitLine(
+        ctx,
+        `  ${pc.yellow("!")} UNVERIFIABLE: a check could not complete (a DID could not be resolved, or an RPC or ` +
+          "gateway failed). This is NOT a forgery: retry with connectivity, or pass --did-doc <file> to verify air-gapped.",
+      );
+    }
     emitLine(ctx, "");
   }
   if (r.overall === "withdrawn") {
@@ -189,6 +201,14 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
   for (const note of r.notes) {
     emitLine(ctx, `  ${pc.dim("·")} ${note}`);
   }
+}
+
+/**
+ * The SDK says a refused registry only in an anchor check's note. Anchored at the note's start: a CID quoted inside
+ * another note cannot fake it.
+ */
+function registryRefused(r: ReceiptVerification): boolean {
+  return r.notes.some((note) => /^(documentAnchor|consentAnchor) UNAVAILABLE: unknown registry: /.test(note));
 }
 
 /** The web verifier's English for a withdrawal, from the records the SDK read under the bundle's root. */
