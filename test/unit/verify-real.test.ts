@@ -143,15 +143,33 @@ describe("agreely verify on hostile files", () => {
     }
   });
 
+  // The issued a1v1 bundle names the emit-only Base Sepolia registry in its issuer delegation, which the SDK refuses
+  // before any RPC: to reach the RPC at all, the copy names the registry the CLI reads (Base mainnet, the SDK default).
   it("4, not 0: --onchain asked for and the RPC unreachable (a closed local port)", async () => {
-    const { code, json } = await verify("a1v1.bundle.json", ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/", "--json");
-    expect(json?.["overall"]).toBe("verified");
-    expect(json?.["consentAnchor"]).toBe("unavailable");
-    expect(code).toBe(EXIT.UNAVAILABLE);
+    const bundle = JSON.parse(await readFile(fixture("a1v1.bundle.json"), "utf8")) as {
+      didDocuments: { issuer: { delegation: { body: Record<string, unknown> } } };
+    };
+    bundle.didDocuments.issuer.delegation.body["registry"] = "0x6f2cf94045cf0cbdd94338882c34d183575023e9";
+    bundle.didDocuments.issuer.delegation.body["chainId"] = "8453";
+    await withTempFile("mainnet.bundle.json", JSON.stringify(bundle), async (path) => {
+      const { code, json } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/", "--json");
+      expect(json?.["overall"]).toBe("verified");
+      expect(json?.["consentAnchor"]).toBe("unavailable");
+      expect(code).toBe(EXIT.UNAVAILABLE);
 
-    const human = await verify("a1v1.bundle.json", ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/");
-    expect(human.code).toBe(EXIT.UNAVAILABLE);
-    expect(human.out).toContain("A CHECK YOU ASKED FOR could not complete");
+      const human = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/");
+      expect(human.code).toBe(EXIT.UNAVAILABLE);
+      expect(human.out).toContain("A CHECK YOU ASKED FOR could not complete");
+    });
+  });
+
+  it("4, never 0: --onchain on a bundle naming a registry the SDK does not read is refused, never verified", async () => {
+    const { code, json } = await verify("a1v1.bundle.json", ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/", "--json");
+    expect(json?.["companySignature"]).toBe("pass");
+    expect(json?.["consentAnchor"]).toBe("unavailable");
+    expect(json?.["overall"]).toBe("unavailable");
+    expect((json?.["notes"] as string[]).join("\n")).toContain("unknown registry: the bundle names the registry 0x3532a9dff3c910152543afca49de7c66113c5312");
+    expect(code).toBe(EXIT.UNAVAILABLE);
   });
 });
 
