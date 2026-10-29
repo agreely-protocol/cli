@@ -387,6 +387,26 @@ describe("agreely verify says whether the consent is still in force", () => {
   });
 });
 
+describe("agreely verify --onchain on a person's key the chain could not read", () => {
+  it("4, not 0: the company key reads in force, the person's key is unreachable", async () => {
+    const keys = await keysInForce();
+    delete keys.keyOf;
+    const bundle = onMainnetBundle(JSON.parse(await readFile(vectorFile("receipts/ck-salted.bundle.json"), "utf8")) as object);
+    await withTempFile("person-unreachable.bundle.json", JSON.stringify(bundle), (path) =>
+      withChain(keys, async (chain) => {
+        const { code, json } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", chain.url, "--json");
+        expect(json?.["companyKey"]).toMatchObject({ verdict: "authentic" });
+        expect(json?.["citizenKey"]).toMatchObject({ chainState: "unreachable" });
+        expect(code).toBe(EXIT.UNAVAILABLE);
+
+        const human = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", chain.url);
+        expect(human.code).toBe(EXIT.UNAVAILABLE);
+        expect(human.out).toContain("A CHECK YOU ASKED FOR could not complete (--onchain): the person's key");
+      }),
+    );
+  });
+});
+
 describe("exitFor never reads an unproven overall as success", () => {
   const as = (r: Record<string, unknown>): Parameters<typeof exitFor>[0] => r as unknown as Parameters<typeof exitFor>[0];
 
@@ -423,6 +443,19 @@ describe("exitFor never reads an unproven overall as success", () => {
     expect(exitFor(as(sound), { onchain: true })).toBe(EXIT.UNAVAILABLE);
     expect(exitFor(as({ ...sound, overall: "partial", receiptType: "company_documented", withdrawal: "not_checked" }), { onchain: true })).toBe(EXIT.UNAVAILABLE);
     expect(exitFor(as({ ...sound, consentAnchor: "pass", withdrawal: "active" }), { onchain: true })).toBe(EXIT.OK);
+  });
+
+  it("with --onchain, a person's key the chain could not read turns 0 into 4; a reading that is not a failure stays 0", () => {
+    const person = (chainState: string, withholds: boolean) => ({ chainState, reason: chainState, withholds });
+    const sound = {
+      overall: "verified", receiptType: "citizen_signed", companySignature: "pass", receiptIntegrity: "pass", citizenAssertion: "pass",
+      documentAnchor: "pass", consentAnchor: "pass", disclosureCopy: "skipped", withdrawal: "active", citizenKeyChain: "unavailable",
+    };
+    expect(exitFor(as({ ...sound, citizenKey: person("unreachable", false) }), { onchain: true })).toBe(EXIT.UNAVAILABLE);
+    expect(exitFor(as({ ...sound, overall: "unavailable", citizenKey: person("unreadable", true) }), { onchain: true })).toBe(EXIT.UNAVAILABLE);
+    expect(exitFor(as({ ...sound, citizenKey: person("unreachable", false) }))).toBe(EXIT.OK);
+    expect(exitFor(as({ ...sound, citizenKey: person("pending", false) }), { onchain: true })).toBe(EXIT.OK);
+    expect(exitFor(as({ ...sound, citizenKey: person("recordedLate", false) }), { onchain: true })).toBe(EXIT.OK);
   });
 
   it("an overall this CLI does not know is an error", () => {

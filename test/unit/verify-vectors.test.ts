@@ -154,7 +154,7 @@ const CHAIN_EXIT: Record<string, number> = {
   "a key not yet valid at grantedAt is refused": EXIT.VERIFY_FAILED,
   "a key retired before grantedAt is refused": EXIT.VERIFY_FAILED,
   "a key recorded more than LAG after grantedAt is amber but does not withhold": EXIT.OK,
-  "a keyOf read that fails is unreachable and neutral": EXIT.OK,
+  "a keyOf read that fails is unreachable and neutral": EXIT.UNAVAILABLE,
   "a keyOf answer that does not decode is unreadable and withholds": EXIT.UNAVAILABLE,
   "a malformed salt is unreadable and withholds, with no keyOf read": EXIT.UNAVAILABLE,
   "a salt absent on a registry that serves keyOf reads notLinked and withholds": EXIT.UNAVAILABLE,

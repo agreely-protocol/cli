@@ -40,6 +40,7 @@ Requires `@agreely/sdk` `^0.7.0`.
   chain reads `failed` and exits `6`. Without `--onchain`, no result changes.
 - With `--onchain`, a version 4 paper or telephone receipt in its bundle reads its
   withdrawal on chain, and exits `0` once the chain reads it in force.
+- With `--onchain`, a person's key that could not be read on chain exits `4`.
 - `verify --ipfs` counts a gateway's copy only once its bytes re-encode to the CID, and
   asks the next gateway otherwise.
 

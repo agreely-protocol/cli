@@ -23,7 +23,8 @@
 //   consent in force (withdrawal "active"): a withdrawal it could not read is a 4.
 //   With --onchain the SDK reads "verified" or "withdrawn" only once the company key is read on chain in force at
 //   the instant it signed and, on a passkey bundle, the person's key reading does not withhold it; otherwise
-//   "unavailable" (4). A refusal on chain is "failed" (6). No other code is added for the key readings.
+//   "unavailable" (4). A refusal on chain is "failed" (6). A person's key the chain did not read (unreachable or
+//   unreadable) is a 4 too: the SDK does not withhold an unreachable one, so this CLI turns that 0 into a 4.
 //
 // --did-doc documents are TRUSTED AS GIVEN: they supply the signing keys. Take them from
 // the issuer and citizen, never out of the file under test.
@@ -99,12 +100,23 @@ export async function verifyCommand(ctx: Context, path: string, flags: VerifyFla
  */
 export function exitFor(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs"> = {}): number {
   const code = exitForOverall(r);
-  return code === EXIT.OK && (askedCheckUnavailable(r, asked) || withdrawalUnread(r, asked)) ? EXIT.UNAVAILABLE : code;
+  return code === EXIT.OK && (askedCheckUnavailable(r, asked) || withdrawalUnread(r, asked) || personKeyUnread(r, asked))
+    ? EXIT.UNAVAILABLE
+    : code;
 }
 
 /** --onchain asks whether the consent is still in force: only a chain that read it so is a 0. */
 function withdrawalUnread(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain">): boolean {
   return asked.onchain === true && r.withdrawal !== "active";
+}
+
+/**
+ * --onchain asks for the person's key too. The SDK does not withhold an unreachable one, so a 0 would name a key the
+ * chain never read. `pending` and `recordedLate` are readings of the chain, not failures to read it: they stay 0.
+ */
+function personKeyUnread(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain">): boolean {
+  const state = r.citizenKey?.chainState;
+  return asked.onchain === true && (state === "unreachable" || state === "unreadable");
 }
 
 function askedCheckUnavailable(r: ReceiptVerification, asked: Pick<VerifyFlags, "onchain" | "ipfs">): boolean {
@@ -267,7 +279,14 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
     );
     emitLine(ctx, "");
   }
-  if (exitForOverall(r) === EXIT.OK && askedCheckUnavailable(r, asked)) {
+  if (exitForOverall(r) === EXIT.OK && personKeyUnread(r, asked)) {
+    emitLine(
+      ctx,
+      `  ${pc.yellow("!")} A CHECK YOU ASKED FOR could not complete (--onchain): the person's key could not be read on chain ` +
+        `(${r.citizenKey?.chainState ?? ""}), so this exits 4. Retry later: the registry may not have answered.`,
+    );
+    emitLine(ctx, "");
+  } else if (exitForOverall(r) === EXIT.OK && askedCheckUnavailable(r, asked)) {
     emitLine(
       ctx,
       consentStillPending(r, asked)
