@@ -1,5 +1,6 @@
 // agreely verify <bundle-or-receipt.json> [--onchain] [--ipfs] [--rpc-url <url>]
-//                                        [--did-doc <file>...] [--json]
+//                                        [--did-doc <file>...] [--ipfs-gateway <url>...]
+//                                        [--now <ISO-8601>] [--json]
 //
 // THE headline: verify a consent OFFLINE-FIRST and print the honesty matrix,
 // exactly what is PROVED vs merely trusted. The file is the verification bundle a
@@ -20,6 +21,9 @@
 //   a --onchain or --ipfs check that could not complete turns a 0 into 4: what was
 //   asked for was not proved. With --onchain, a 0 also needs the chain to read the
 //   consent in force (withdrawal "active"): a withdrawal it could not read is a 4.
+//   With --onchain the SDK reads "verified" or "withdrawn" only once the company key is read on chain in force at
+//   the instant it signed and, on a passkey bundle, the person's key reading does not withhold it; otherwise
+//   "unavailable" (4). A refusal on chain is "failed" (6). No other code is added for the key readings.
 //
 // --did-doc documents are TRUSTED AS GIVEN: they supply the signing keys. Take them from
 // the issuer and citizen, never out of the file under test.
@@ -28,6 +32,7 @@ import { readFile } from "node:fs/promises";
 import { Agreely, type DidDocument, type ReceiptVerification, type VerifyReceiptOptions } from "@agreely/sdk";
 import type { Context } from "../context.js";
 import { EXIT, UsageError } from "../errors.js";
+import { assertInstant } from "../flags.js";
 import { emitJson, emitLine, pc } from "../output.js";
 
 export interface VerifyFlags {
@@ -36,6 +41,10 @@ export interface VerifyFlags {
   rpcUrl?: string;
   /** Local DID document file(s): supply the signing key(s) for an air-gapped verify. */
   didDoc?: string[];
+  /** IPFS gateways asked in order for the disclosure copy (the SDK's `ipfsGateways`). */
+  ipfsGateway?: string[];
+  /** The verifier's clock, an RFC 3339 instant with an offset (the SDK's `now`). */
+  now?: string;
 }
 
 export async function verifyCommand(ctx: Context, path: string, flags: VerifyFlags): Promise<void> {
@@ -62,6 +71,15 @@ export async function verifyCommand(ctx: Context, path: string, flags: VerifyFla
       throw new UsageError("--onchain needs an RPC URL: pass --rpc-url <url> or set AGREELY_RPC_URL.");
     }
     opts.rpcUrl = rpcUrl;
+  }
+
+  if (flags.ipfsGateway && flags.ipfsGateway.length > 0) {
+    opts.ipfsGateways = flags.ipfsGateway.map(gatewayFlag);
+  }
+
+  if (flags.now !== undefined) {
+    const now = clockFlag(flags.now);
+    opts.now = () => now;
   }
 
   const result: ReceiptVerification = await Agreely.verifyReceipt(receipt, opts);
@@ -114,6 +132,33 @@ function exitForOverall(r: ReceiptVerification): number {
   }
 }
 
+/** An http(s) gateway, a prefix the CID is appended to or a template carrying {cid}, passed to the SDK as given. */
+function gatewayFlag(value: string): string {
+  const gateway = value.trim();
+  let url: URL | null = null;
+  try {
+    url = new URL(gateway.replace("{cid}", "cid"));
+  } catch {
+    url = null;
+  }
+  if (url === null || (url.protocol !== "https:" && url.protocol !== "http:")) {
+    throw new UsageError(
+      `--ipfs-gateway "${value}" must be an http(s) URL: a prefix the CID is appended to, or a template carrying {cid}.`,
+    );
+  }
+  return gateway;
+}
+
+/** --now as milliseconds since the epoch, the unit of the SDK's `now`. */
+function clockFlag(value: string): number {
+  const instant = assertInstant(value.trim(), "--now");
+  const ms = Date.parse(instant);
+  if (!Number.isFinite(ms)) {
+    throw new UsageError(`--now "${value}" is not a real instant.`);
+  }
+  return ms;
+}
+
 /** Load DID document files and key them by their `id` for the local resolver. */
 async function loadDidDocs(paths: string[]): Promise<Record<string, DidDocument>> {
   const docs: Record<string, DidDocument> = {};
@@ -149,11 +194,16 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
                 : pc.red("✗ FAILED");
   emitLine(ctx, `${verdict}  ${pc.dim(`(${r.receiptType}, read as a ${r.input})`)}`);
   emitLine(ctx, `  companySignature  ${statusLabel(r.companySignature)}`);
+  if (asked.onchain === true) emitLine(ctx, `  companyKey        ${companyKeyLine(r)}`);
   emitLine(ctx, `  receiptIntegrity  ${statusLabel(r.receiptIntegrity)}`);
   emitLine(ctx, `  citizenAssertion  ${statusLabel(r.citizenAssertion)}`);
+  if (asked.onchain === true && r.citizenKeyChain !== undefined) emitLine(ctx, `  citizenKey        ${citizenKeyLine(r)}`);
   emitLine(ctx, `  disclosureCopy    ${statusLabel(r.disclosureCopy)}`);
+  const gateway = gatewayLine(r, asked);
+  if (gateway !== null) emitLine(ctx, `  disclosureGateway ${gateway}`);
   emitLine(ctx, `  documentAnchor    ${statusLabel(r.documentAnchor)}`);
   emitLine(ctx, `  consentAnchor     ${statusLabel(r.consentAnchor)}`);
+  if (r.signedAnchor !== undefined) emitLine(ctx, `  signedAnchor      ${signedAnchorLine(r.signedAnchor)}`);
   emitLine(ctx, `  cellLabelBinding  ${statusLabel(r.cellLabelBinding)}`);
   emitLine(ctx, `  withdrawal        ${withdrawalLabel(r.withdrawal)}`);
   emitLine(ctx, "");
@@ -176,7 +226,27 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
           "still checked offline.",
       );
     }
-    if (!refused || [r.companySignature, r.receiptIntegrity, r.citizenAssertion, r.disclosureCopy].includes("unavailable")) {
+    const companyUnconfirmed = !refused && r.companyKeyRegistry === "unavailable";
+    const personWithheld = !refused && r.citizenKey?.withholds === true;
+    if (companyUnconfirmed) {
+      emitLine(
+        ctx,
+        `  ${pc.yellow("!")} COMPANY KEY NOT CONFIRMED ON CHAIN (${r.companyKey?.verdict ?? "not read"}): the key that ` +
+          "signed is not read on chain as in force at the instant it signed, so the consent is not shown as verified. " +
+          "It is not a refusal: a refusal on chain reads FAILED.",
+      );
+    }
+    if (personWithheld) {
+      emitLine(
+        ctx,
+        `  ${pc.yellow("!")} PERSON'S KEY WITHHELD ON CHAIN (${r.citizenKey?.chainState ?? ""}): the reading of the ` +
+          "person's key on chain withholds the verdict, so the consent is not shown as verified. It is not a refusal: " +
+          "a refusal on chain reads FAILED.",
+      );
+    }
+    const offlineUnavailable = [r.companySignature, r.receiptIntegrity, r.citizenAssertion, r.disclosureCopy].includes("unavailable");
+    const explained = refused || companyUnconfirmed || personWithheld;
+    if (!explained || offlineUnavailable || (companyUnconfirmed && r.companyKey?.verdict === "unreachable")) {
       emitLine(
         ctx,
         `  ${pc.yellow("!")} UNVERIFIABLE: a check could not complete (a DID could not be resolved, or an RPC or ` +
@@ -212,10 +282,12 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
       ctx,
       asked.onchain === true
         ? `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED (--onchain): this file names no consent record this verifier reads on ` +
-          "chain (it reads one from a passkey consent's verification bundle only), so whether the consent was since " +
-          "withdrawn is not proved and this exits 4. This is NOT a forgery, and retrying will not change it."
+          "chain (it reads one from a passkey consent's verification bundle, or from a version 4 paper or telephone " +
+          "receipt in its bundle), so whether the consent was since withdrawn is not proved and this exits 4. This is " +
+          "NOT a forgery, and retrying will not change it."
         : `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED: this verify did not read the chain, so it says nothing of a ` +
-          "withdrawal since the consent was given. For a passkey consent's verification bundle, add " +
+          "withdrawal since the consent was given. For a passkey consent's verification bundle, or a version 4 paper " +
+          "or telephone receipt in its bundle, add " +
           "--onchain --rpc-url https://base-rpc.publicnode.com to read it.",
     );
     emitLine(ctx, "");
@@ -267,6 +339,78 @@ function withdrawalSentence(r: ReceiptVerification): string {
   const rest = m - k === 1 ? "the other remains active per the chain" : "the rest remain active per the chain";
   const when = date ? ` Most recent withdrawal on-chain on ${date}.` : "";
   return `${String(k)} of ${String(m)} purposes ${k === 1 ? "has" : "have"} been withdrawn; ${rest}.${when} ${authentic}.`;
+}
+
+/** The company key on chain at the instant it signed, by the SDK's `companyKey.verdict`. */
+const COMPANY_KEY_READINGS: Readonly<Record<string, string>> = {
+  authentic: "read on chain as in force on its domain at the instant it signed",
+  "key-not-authorised": "read on chain as NOT in force on its domain at the instant it signed",
+  "signed-after-anchor": "it signed later than the consent's own anchor allows, so the signing date is contradicted",
+  voided: "its window is recorded on chain as voided",
+  pending: "no window on its domain is recorded on chain yet",
+  "recorded-late": "recorded on its domain more than 72 hours after the instant it signed",
+  "retired-issuer-dated": "retired since, and the instant it signed is the issuer's own date, which no anchor bounds",
+  unknown: "its window cannot be judged at the instant it signed",
+  unreachable: "the registry could not be read",
+  "no-domain": "the issuer DID document names no domain to read the key on",
+};
+
+/** The person's key on chain, by the SDK's `citizenKey.reason` (the chain state combined with the consent's anchor). */
+const CITIZEN_KEY_READINGS: Readonly<Record<string, string>> = {
+  chainConfirmed: "recorded on chain in force at grantedAt, and the consent's anchor bounds that date",
+  notInForce: "recorded on chain as NOT in force at grantedAt (not valid yet, or retired)",
+  conflict: "the registry and the person's DID document disagree about the key",
+  didRefused: "the person's DID document refuses the key",
+  grantedAfterConsentAnchor: "grantedAt is later than the consent's own anchor allows, so the date is contradicted",
+  recordedLate: "recorded on chain more than 72 hours after grantedAt",
+  voided: "recorded on chain as voided",
+  consentRecordedLate: "grantedAt falls more than 72 hours before the consent's earliest anchor",
+  consentNotAnchored: "in force at grantedAt, but no anchor of this consent bounds that date yet",
+  didNotConsulted: "in force at grantedAt, but the person's DID document standing was not read",
+  notLinked: "the bundle carries no citizenKeySalt, so the key cannot be looked up on chain",
+  pending: "not recorded on chain yet: recording can take up to 72 hours after grantedAt",
+  unreachable: "the registry could not be read",
+  notRecorded: "still not recorded on chain 72 hours after grantedAt",
+  unreadable: "the bundle's citizenKeySalt or the registry's answer cannot be read",
+};
+
+/** A version 4 paper or telephone receipt in its bundle: the bundle's root and refs against the batch it signs. */
+const SIGNED_ANCHOR_READINGS: Readonly<Record<string, string>> = {
+  bound: "the bundle's root and refs are the ones the receipt signs: the chain is read on the signed refs",
+  contradicts: "the bundle's root, or a ref it carries, is not one the receipt signs",
+  malformed: "a signed anchor member is missing or malformed, or the bundle carries no root: no anchor is tied",
+};
+
+// A value this CLI does not know is printed as the SDK sent it; the exit code follows `overall` either way.
+function companyKeyLine(r: ReceiptVerification): string {
+  const k = r.companyKey;
+  if (k === undefined) return `${statusLabel(r.companyKeyRegistry ?? "skipped")}  not read`;
+  const domain = k.domain !== "" ? ` (${k.domain})` : "";
+  const rotated = k.rotated === true ? ", and the company has since rotated to another key" : "";
+  return `${statusLabel(r.companyKeyRegistry ?? "skipped")}  ${k.verdict}: ${COMPANY_KEY_READINGS[k.verdict] ?? k.verdict}${domain}${rotated}`;
+}
+
+function citizenKeyLine(r: ReceiptVerification): string {
+  const k = r.citizenKey;
+  if (k === undefined) return `${statusLabel(r.citizenKeyChain ?? "skipped")}  not read`;
+  const withheld = k.withholds ? ", which withholds the verdict" : "";
+  return `${statusLabel(r.citizenKeyChain ?? "skipped")}  ${k.chainState}: ${CITIZEN_KEY_READINGS[k.reason] ?? k.reason}${withheld}`;
+}
+
+function signedAnchorLine(s: NonNullable<ReceiptVerification["signedAnchor"]>): string {
+  const label = s.binding === "bound" ? pc.green("bound") : s.binding === "contradicts" ? pc.red("contradicts") : pc.yellow(s.binding);
+  return `${label}  ${SIGNED_ANCHOR_READINGS[s.binding] ?? s.binding}`;
+}
+
+// The SDK names each gateway tried, and why it failed, only in this note (vectors/ipfs-gateways.json pins that).
+const NONE_DELIVERED = /^disclosureCopy UNAVAILABLE: no IPFS gateway delivered the file of CID \S+: (.+)\. This is NOT a hash mismatch\.$/;
+
+/** The gateway that delivered the disclosure copy, or each one tried when none did; null when no gateway was asked. */
+function gatewayLine(r: ReceiptVerification, asked: Pick<VerifyFlags, "ipfs">): string | null {
+  if (r.disclosureGateway !== undefined) return `delivered by ${r.disclosureGateway}`;
+  if (asked.ipfs !== true || r.disclosureCopy !== "unavailable") return null;
+  const tried = r.notes.map((n) => NONE_DELIVERED.exec(n)?.[1]).find((t) => t !== undefined);
+  return `${pc.yellow("none delivered")}: ${tried ?? "see the notes below"}`;
 }
 
 function withdrawalLabel(withdrawal: string): string {

@@ -3,6 +3,43 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## 0.6.0 - Unreleased
+
+Requires `@agreely/sdk` `^0.7.0`.
+
+### Added
+
+- `verify --onchain` reads the company key on chain at the instant it signed and, on a
+  passkey bundle, the person's key. The matrix prints a `companyKey` line (`authentic`,
+  `key-not-authorised`, `signed-after-anchor`, `pending`, `voided`, `recorded-late`,
+  `retired-issuer-dated`, `unknown`, `unreachable`, `no-domain`, and whether the company
+  has since rotated its key) and a `citizenKey` line (`inForce`, `pending`, `notRecorded`,
+  `voided`, `notInForce`, `recordedLate`, `notLinked`, `unreadable`, `unreachable`, with
+  the reason the SDK gives).
+- `verify` prints a `signedAnchor` line for a version 4 paper or telephone receipt in its
+  bundle (`bound`, `contradicts` or `malformed`). With `--onchain`, the chain is read on
+  the refs the receipt signs.
+- `verify --ipfs-gateway <url>` (repeatable): the IPFS gateways asked in order for the
+  disclosure copy, each a prefix or a `{cid}` template. Under `--ipfs`, the matrix prints
+  `disclosureGateway` with the gateway that delivered, or each gateway tried when none did.
+- `verify --now <ISO-8601>` pins the verifier's clock. An instant that does not parse
+  exits `2`.
+- `verify --json` carries the SDK's `companyKeyRegistry`, `companyKey`, `citizenKeyChain`,
+  `citizenKey`, `signedAnchor`, `disclosureGateway` and
+  `consentAnchorCounts.anchorBatchRefs` unchanged.
+
+### Changed
+
+- With `--onchain`, `verify` reads `verified` or `withdrawn` only once the company key is
+  read on chain in force at the instant it signed and, on a passkey bundle, the person's
+  key reading does not withhold the verdict. Otherwise it reads `unavailable` and exits
+  `4`, and the matrix says which key and that it is not a refusal. A refusal read on
+  chain reads `failed` and exits `6`. Without `--onchain`, no result changes.
+- With `--onchain`, a version 4 paper or telephone receipt in its bundle reads its
+  withdrawal on chain, and exits `0` once the chain reads it in force.
+- `verify --ipfs` counts a gateway's copy only once its bytes re-encode to the CID, and
+  asks the next gateway otherwise.
+
 ## 0.5.1 - 2026-10-27
 
 Requires `@agreely/sdk` `^0.6.1`.

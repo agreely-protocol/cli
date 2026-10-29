@@ -2,8 +2,6 @@
 // --did-doc keeps every run air-gapped: an unknown DID resolves to null, never to the network.
 
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { run } from "../../src/cli.js";
 import { exitFor } from "../../src/commands/verify.js";
 import { EXIT } from "../../src/errors.js";
+import { onMainnetAnswers, onMainnetBundle, withChain, type VectorAnswers } from "./chain.js";
 import { argv, makeIo } from "./harness.js";
 
 const fixture = (name: string): string => fileURLToPath(new URL(`../fixtures/verify/${name}`, import.meta.url));
@@ -155,14 +154,33 @@ describe("agreely verify on hostile files", () => {
     bundle.didDocuments.issuer.delegation.body["chainId"] = "8453";
     await withTempFile("mainnet.bundle.json", JSON.stringify(bundle), async (path) => {
       const { code, json } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/", "--json");
-      expect(json?.["overall"]).toBe("verified");
+      expect(json?.["overall"]).toBe("unavailable");
       expect(json?.["consentAnchor"]).toBe("unavailable");
+      expect(json?.["companyKeyRegistry"]).toBe("unavailable");
       expect(code).toBe(EXIT.UNAVAILABLE);
 
       const human = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/");
       expect(human.code).toBe(EXIT.UNAVAILABLE);
-      expect(human.out).toContain("A CHECK YOU ASKED FOR could not complete");
+      expect(human.out).toContain("companyKey        unavailable  unreachable: the registry could not be read");
+      expect(human.out).toContain("This is NOT a forgery: retry with connectivity");
     });
+  });
+
+  it("4, not 0: --onchain where the chain confirms both keys but does not answer for the consent's records", async () => {
+    const keys = { ...(await keysInForce()), registry: {} };
+    const bundle = onMainnetBundle(JSON.parse(await readFile(vectorFile("receipts/ck-salted.bundle.json"), "utf8")) as object);
+    await withTempFile("keys-only.bundle.json", JSON.stringify(bundle), (path) =>
+      withChain(keys, async (chain) => {
+        const { code, json } = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", chain.url, "--json");
+        expect(json?.["overall"]).toBe("verified");
+        expect(json?.["consentAnchor"]).toBe("unavailable");
+        expect(code).toBe(EXIT.UNAVAILABLE);
+
+        const human = await verifyPath(path, ...DOCS, "--onchain", "--rpc-url", chain.url);
+        expect(human.code).toBe(EXIT.UNAVAILABLE);
+        expect(human.out).toContain("A CHECK YOU ASKED FOR could not complete");
+      }),
+    );
   });
 
   it("4, never 0: --onchain on a bundle naming a registry the SDK does not read is refused, never verified", async () => {
@@ -189,52 +207,40 @@ describe("agreely verify on hostile files", () => {
   });
 });
 
-// registry(consentRef) answered by a local JSON-RPC as five words: merkleRoot, anchoredAt, revokedAt, state, block.
+// The salted vector bundle (vectors/receipts/ck-salted.bundle.json: a1v1 with a citizenKeySalt), on the Base mainnet
+// registry the CLI reads, and a chain with both keys in force (citizen-key-chain.json, its first case). Each test
+// chooses the consent's cells; a ref it leaves out is not anchored yet (registry answers zero words).
 type Cell = { state: 1 | 2; revokedAt: number };
 const REVOKED_AT = Date.UTC(2026, 9, 25, 14, 3, 0) / 1000;
 const word = (n: number): string => n.toString(16).padStart(64, "0");
+const vectorFile = (rel: string): string => fileURLToPath(new URL(`../fixtures/vectors/${rel}`, import.meta.url));
 
-async function withRegistry(root: string, cells: Record<string, Cell>, fn: (rpcUrl: string) => Promise<void>): Promise<void> {
-  const server = createServer((req, res) => {
-    let body = "";
-    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
-    req.on("end", () => {
-      const call = JSON.parse(body) as { id: number; params: [{ data: string }] };
-      const cell = cells[`0x${call.params[0].data.slice(-64).toLowerCase()}`];
-      const result = cell
-        ? `0x${root.slice(2)}${word(REVOKED_AT - 86400)}${word(cell.state === 2 ? cell.revokedAt : 0)}${word(cell.state)}${word(53200000)}`
-        : `0x${word(0).repeat(5)}`;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ jsonrpc: "2.0", id: call.id, result }));
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  try {
-    await fn(`http://127.0.0.1:${String((server.address() as AddressInfo).port)}/`);
-  } finally {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+async function keysInForce(): Promise<VectorAnswers> {
+  const vectors = JSON.parse(await readFile(vectorFile("citizen-key-chain.json"), "utf8")) as { cases: Array<{ answers: VectorAnswers | null }> };
+  return onMainnetAnswers(vectors.cases[0]!.answers!);
 }
 
-/**
- * The issued a1v1 bundle, named on the Base mainnet registry the CLI reads, with the cells the chain holds as
- * `cellsFor` chooses them from the bundle's consent refs. A ref it leaves out is not anchored yet.
- */
 async function withChainCells(
   cellsFor: (refs: string[]) => Record<string, Cell>,
   fn: (path: string, rpcUrl: string) => Promise<void>,
 ): Promise<void> {
-  const bundle = JSON.parse(await readFile(fixture("a1v1.bundle.json"), "utf8")) as {
-    merkleRoot: string;
-    consentRefs: string[];
-    didDocuments: { issuer: { delegation: { body: Record<string, unknown> } } };
-  };
-  bundle.didDocuments.issuer.delegation.body["registry"] = "0x6f2cf94045cf0cbdd94338882c34d183575023e9";
-  bundle.didDocuments.issuer.delegation.body["chainId"] = "8453";
+  const answers = await keysInForce();
+  const bundle = onMainnetBundle(
+    JSON.parse(await readFile(vectorFile("receipts/ck-salted.bundle.json"), "utf8")) as { consentRefs: string[] },
+  );
+  // The vector's in-force record: merkleRoot, anchoredAt, revokedAt, state, block. A cell keeps all but revokedAt and state.
+  const record = Object.values(answers.registry ?? {})[0]!.slice(2);
+  const [root, anchoredAt, , , block] = [0, 1, 2, 3, 4].map((i) => record.slice(i * 64, (i + 1) * 64));
   const cells = cellsFor(bundle.consentRefs.map((ref) => ref.toLowerCase()));
+  const registry: Record<string, string> = {};
+  for (const ref of bundle.consentRefs.map((r) => r.toLowerCase())) {
+    const cell = cells[ref];
+    registry[ref] = cell
+      ? `0x${root!}${anchoredAt!}${word(cell.state === 2 ? cell.revokedAt : 0)}${word(cell.state)}${block!}`
+      : `0x${word(0).repeat(5)}`;
+  }
   await withTempFile("withdrawn.bundle.json", JSON.stringify(bundle), (path) =>
-    withRegistry(bundle.merkleRoot.toLowerCase(), cells, (rpcUrl) => fn(path, rpcUrl)),
+    withChain({ ...answers, registry }, (chain) => fn(path, chain.url)),
   );
 }
 
@@ -346,18 +352,22 @@ describe("agreely verify says whether the consent is still in force", () => {
     );
   });
 
-  it("4, never 0: --onchain on a paper receipt, whose withdrawal this verifier does not read on chain", async () => {
-    const extra = [...DOCS, "--onchain", "--rpc-url", "http://127.0.0.1:9/"];
-    const { code, json } = await verify("a3v3.receipt.json", ...extra, "--json");
-    expect(json?.["overall"]).toBe("verified");
-    expect(json?.["withdrawal"]).toBe("not_checked");
-    expect(code).toBe(EXIT.UNAVAILABLE);
+  it("4, never 0: --onchain on a version 3 paper receipt, whose withdrawal this verifier does not read on chain", async () => {
+    const { companyKeyOf, getCompanyDid } = await keysInForce();
+    await withChain({ ...(companyKeyOf !== undefined ? { companyKeyOf } : {}), ...(getCompanyDid !== undefined ? { getCompanyDid } : {}) }, async (chain) => {
+      const extra = [...DOCS, "--onchain", "--rpc-url", chain.url];
+      const { code, json } = await verify("a3v3.receipt.json", ...extra, "--json");
+      expect(json?.["overall"]).toBe("verified");
+      expect(json?.["companyKeyRegistry"]).toBe("pass");
+      expect(json?.["withdrawal"]).toBe("not_checked");
+      expect(code).toBe(EXIT.UNAVAILABLE);
 
-    const human = await verify("a3v3.receipt.json", ...extra);
-    expect(human.code).toBe(EXIT.UNAVAILABLE);
-    expect(human.out).toContain("WITHDRAWAL NOT CHECKED (--onchain)");
-    expect(human.out).toContain("retrying will not change it");
-    expect(human.out).not.toContain("A CHECK YOU ASKED FOR");
+      const human = await verify("a3v3.receipt.json", ...extra);
+      expect(human.code).toBe(EXIT.UNAVAILABLE);
+      expect(human.out).toContain("WITHDRAWAL NOT CHECKED (--onchain)");
+      expect(human.out).toContain("retrying will not change it");
+      expect(human.out).not.toContain("A CHECK YOU ASKED FOR");
+    });
   });
 
   it("6: a passkey receipt carrying a field the issuer never writes is MALFORMED, never FAILED", async () => {

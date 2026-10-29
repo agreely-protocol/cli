@@ -1083,6 +1083,50 @@ describe("verify (the headline)", () => {
     expect(opts.rpcUrl).toBe("https://rpc.test");
   });
 
+  it("--ipfs-gateway passes each gateway, in order, as ipfsGateways; --now pins the clock in milliseconds", async () => {
+    h.verify.mockResolvedValue(matrix("verified"));
+    const io = makeIo({ env: ENV });
+    const code = await run(
+      argv(
+        "verify", writeReceipt(), "--ipfs",
+        "--ipfs-gateway", "https://b.example/ipfs/",
+        "--ipfs-gateway", "https://a.example/ipfs/{cid}?download=false",
+        "--now", "2026-10-29T12:00:00-04:00",
+        "--json",
+      ),
+      io.io,
+    );
+    expect(code).toBe(EXIT.OK);
+    const [, opts] = h.verify.mock.calls[0] as [unknown, { ipfsGateways?: string[]; now?: () => number }];
+    expect(opts.ipfsGateways).toEqual(["https://b.example/ipfs/", "https://a.example/ipfs/{cid}?download=false"]);
+    expect(opts.now?.()).toBe(Date.UTC(2026, 9, 29, 16, 0, 0));
+  });
+
+  it("without --ipfs-gateway or --now, the SDK keeps its own gateway list and clock", async () => {
+    h.verify.mockResolvedValue(matrix("verified"));
+    const io = makeIo({ env: ENV });
+    await run(argv("verify", writeReceipt(), "--ipfs", "--json"), io.io);
+    const [, opts] = h.verify.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(opts).not.toHaveProperty("ipfsGateways");
+    expect(opts).not.toHaveProperty("now");
+  });
+
+  it("an unparsable --now or a --ipfs-gateway that is not an http(s) URL is a usage error (exit 2), before any check", async () => {
+    for (const bad of [
+      ["--now", "yesterday"],
+      ["--now", "2026-10-29"],
+      ["--now", "2026-13-01T00:00:00Z"],
+      ["--ipfs-gateway", "ipfs.example/ipfs/"],
+      ["--ipfs-gateway", "file:///etc/{cid}"],
+    ]) {
+      h.verify.mockClear();
+      const io = makeIo({ env: ENV });
+      const code = await run(argv("verify", writeReceipt(), "--ipfs", ...bad, "--json"), io.io);
+      expect(code, bad.join(" ")).toBe(EXIT.USAGE);
+      expect(h.verify).not.toHaveBeenCalled();
+    }
+  });
+
   it("--onchain without an rpc url is a usage error (exit 2)", async () => {
     h.verify.mockResolvedValue(matrix("verified"));
     const io = makeIo({ env: ENV });

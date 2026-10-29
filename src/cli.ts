@@ -253,14 +253,16 @@ export async function run(
       .description(
         "Verify a consent offline-first from its verification bundle or a receipt; prints the honesty matrix " +
           "(exit 0 verified, and with --onchain only when the chain reads the consent in force; " +
-          "6 tamper or malformed file; 4 unresolvable, an asked-for check incomplete, or --onchain could not " +
-          "read the withdrawal; 11 bare passkey receipt: verify the bundle; 12 authentic but withdrawn on chain)",
+          "6 tamper or malformed file, or a refusal on chain; 4 unresolvable, an asked-for check incomplete, a key " +
+          "not confirmed on chain, or --onchain could not read the withdrawal; 11 bare passkey receipt: verify the " +
+          "bundle; 12 authentic but withdrawn on chain)",
       )
       .argument("<file.json>", "path to the verification bundle (or receipt VC) JSON file")
       .option("--ipfs", "also fetch + compare the IPFS disclosure copy (opt-in network)")
       .option(
         "--onchain",
-        "also check the on-chain document and consent anchors and whether the consent is still in force " +
+        "also read on chain the document and consent anchors, the company key and, on a passkey bundle, the " +
+          "person's key, and whether the consent is still in force; verified needs the company key read in force " +
           "(needs --rpc-url / AGREELY_RPC_URL, e.g. https://base-rpc.publicnode.com)",
       )
       .option("--rpc-url <url>", "JSON-RPC URL for the --onchain check")
@@ -270,11 +272,24 @@ export async function run(
           "so never take it out of the file under test",
         collect,
         [] as string[],
+      )
+      .option(
+        "--ipfs-gateway <url>",
+        "with --ipfs: an IPFS gateway to ask for the disclosure copy, a prefix the CID is appended to or a template " +
+          "carrying {cid} (repeatable, asked in order, replaces the default list; a copy counts only once it " +
+          "re-encodes to its CID)",
+        collect,
+        [] as string[],
+      )
+      .option(
+        "--now <ISO-8601>",
+        "pin the verifier's clock to an instant with an offset (2026-10-29T12:00:00Z); with --onchain it tells a " +
+          "person's key not recorded yet from one still not recorded 72 hours after grantedAt",
       ),
   ).action(
     async (
       path: string,
-      opts: { ipfs?: boolean; onchain?: boolean; rpcUrl?: string; didDoc?: string[] },
+      opts: { ipfs?: boolean; onchain?: boolean; rpcUrl?: string; didDoc?: string[]; ipfsGateway?: string[]; now?: string },
       cmd: Command,
     ) => {
       await verifyCommand(ctxFor(cmd), path, {
@@ -282,6 +297,8 @@ export async function run(
         ...(opts.onchain !== undefined ? { onchain: opts.onchain } : {}),
         ...(opts.rpcUrl !== undefined ? { rpcUrl: opts.rpcUrl } : {}),
         ...(opts.didDoc !== undefined && opts.didDoc.length > 0 ? { didDoc: opts.didDoc } : {}),
+        ...(opts.ipfsGateway !== undefined && opts.ipfsGateway.length > 0 ? { ipfsGateway: opts.ipfsGateway } : {}),
+        ...(opts.now !== undefined ? { now: opts.now } : {}),
       });
     },
   );

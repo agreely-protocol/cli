@@ -63,9 +63,9 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | `1` | an unexpected/uncategorized failure |
 | `2` | usage or validation error (bad/missing args, invalid input including a `413`, no credentials), a `404`, or a `409` state conflict (envelope code is the specific code, else `conflict`; `retry` means a concurrent retry could not be settled: retry with the same key) |
 | `3` | auth - the key is missing, invalid, revoked, or lacks the scope |
-| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write that takes a key (see Writes) the envelope carries `idempotencyKey`: retry with that SAME key. `verify`: a check could not complete (a DID could not be resolved), or a check you asked for with `--onchain` or `--ipfs` could not complete, even when everything else verified, or `--onchain` could not read whether the consent is still in force (`withdrawal: "not_checked"`: a paper or telephone receipt, or a bundle naming no consent record; retrying does not change that) |
+| `4` | **unavailable** - an Agreely outage or a timeout (distinct from a deny). On a write that takes a key (see Writes) the envelope carries `idempotencyKey`: retry with that SAME key. `verify`: a check could not complete (a DID could not be resolved), or a check you asked for with `--onchain` or `--ipfs` could not complete, even when everything else verified, or `--onchain` could not read whether the consent is still in force (`withdrawal: "not_checked"`: a paper or telephone receipt other than a version 4 in its bundle, or a bundle naming no consent record; retrying does not change that), or `--onchain` did not confirm a key on chain (the company key at the instant it signed, or a person's key reading that withholds the verdict: `overall: "unavailable"`) |
 | `5` | rate-limited - the per-company per-minute window was exceeded (retry after the delay) |
-| `6` | `verify`: a bundle or receipt was checked and did **not** verify (a verdict, not an error), or the file is **malformed** (JSON that is not a version `"1"` bundle or a receipt this verifier can read, so no check ran: the matrix says `MALFORMED`, never a tamper). A file that is not JSON exits `2` |
+| `6` | `verify`: a bundle or receipt was checked and did **not** verify (a verdict, not an error, including a refusal read on chain with `--onchain`), or the file is **malformed** (JSON that is not a version `"1"` bundle or a receipt this verifier can read, so no check ran: the matrix says `MALFORMED`, never a tamper). A file that is not JSON exits `2` |
 | `7` | **billing inactive** (HTTP 402) - the company's Agreely subscription lapsed. Fail-closed like a deny, but actionable and distinct from an outage |
 | `8` | **daily cap** (HTTP 429 `withdrawal_daily_cap`, `verbal_daily_cap`, `hold_budget_exhausted`, `hold_release_cap_reached`). Not a rate window: retrying today cannot succeed, so do not loop on it |
 | `9` | the write **succeeded** but its output could not be saved (`consent-sheet create`: the sheet was minted, the file could not be written). The reference and claim were still printed. Do **not** retry |
@@ -393,6 +393,37 @@ confirm, or a date outside either window, exits `6`.
   consent anchors; `--ipfs` also fetches and compares the IPFS disclosure copy. Both
   are opt-in network calls, and a check you asked for that could not complete exits
   `4`, never `0`.
+- **Keys on chain.** With `--onchain`, a consent reads `verified` (or `withdrawn`) only
+  once the company key that signed is read on chain in force on its domain at the
+  instant it signed (`grantedAt`, or `recordedAt` on a paper or telephone receipt) and,
+  on a passkey bundle, the reading of the person's key (looked up with the bundle's
+  `citizenKeySalt`) does not withhold the verdict. Otherwise it reads `unavailable`
+  (exit `4`) and the matrix says which key, and that it is not a refusal; a refusal read
+  on chain reads `failed` (exit `6`). The matrix prints a `companyKey` line (`authentic`,
+  `key-not-authorised`, `signed-after-anchor`, `pending`, `voided`, `recorded-late`,
+  `retired-issuer-dated`, `unknown`, `unreachable`, `no-domain`, and whether the company
+  has since rotated its key) and, on a passkey bundle, a `citizenKey` line (`inForce`,
+  `pending`, `notRecorded`, `voided`, `notInForce`, `recordedLate`, `notLinked`,
+  `unreadable`, `unreachable`, with the reason the SDK gives). A person's key not
+  recorded yet reads `pending` for 72 hours after `grantedAt`, then `notRecorded`. The
+  exit code follows `overall`: a reading that does not withhold the verdict keeps it.
+- **Signed anchor.** A version 4 paper or telephone receipt signs its anchor batch. In
+  its bundle, the matrix prints a `signedAnchor` line: `bound` (the bundle's root and refs
+  are the ones the receipt signs), `contradicts` (a failure) or `malformed` (no anchor is
+  tied). With `--onchain`, the chain is read on the signed refs once the company key is
+  confirmed, which sets `consentAnchor` and `withdrawal`.
+- `--ipfs-gateway <url>` (repeatable) names the IPFS gateways asked for the disclosure
+  copy, in order, instead of the default list: a prefix the CID is appended to
+  (`https://host/ipfs/`) or a template carrying `{cid}`. A gateway is trusted for nothing:
+  its copy counts only once its bytes re-encode to the CID (under a CID this verifier
+  cannot recompute, only once its hash matches the signed one). Under `--ipfs`, the matrix
+  prints `disclosureGateway` with the gateway that delivered, or each gateway tried, and
+  why, when none did.
+- `--now <ISO-8601>` pins the verifier's clock to an instant with an offset
+  (`2026-10-29T12:00:00Z`). An instant that does not parse exits `2`.
+- `--json` passes the SDK's result through unchanged, `companyKeyRegistry`, `companyKey`,
+  `citizenKeyChain`, `citizenKey`, `signedAnchor`, `disclosureGateway` and
+  `consentAnchorCounts.anchorBatchRefs` included.
 - `--onchain` reads only the Base mainnet registry. A bundle whose issuer key delegation
   names another registry or chain (a bundle anchored on Base Sepolia, for one) is refused
   before any call when a check would read the chain: a receipt with a `document.ipfsCid`, or
@@ -409,13 +440,14 @@ confirm, or a date outside either window, exits `6`.
   exits `0` with the line `WITHDRAWAL NOT CHECKED`: a withdrawn consent verified offline
   still reads `verified`. To accept a consent only while it is in force, verify its
   bundle with `--onchain` and accept exit `0` alone. This verifier reads the on-chain
-  record from a passkey consent's verification bundle only: a paper or telephone receipt
-  reads `not_checked` and exits `4` under `--onchain` (the Agreely `/verify` page reads it
-  for a version 4 paper or telephone receipt).
+  record from a passkey consent's verification bundle, and from a version 4 paper or
+  telephone receipt in its bundle (on the refs it signs). Any other paper or telephone
+  receipt reads `not_checked` and exits `4` under `--onchain`.
 - Exit `0` verified, or `partial` on a telephone receipt, and with `--onchain` only when
   the chain reads the consent in force; `6` failed or malformed (a passkey receipt carrying
-  a field the issuer never writes included); `2` a file that is not JSON; `4` a check
-  could not complete, or `--onchain` could not read the withdrawal; `11` a bare passkey
+  a field the issuer never writes included, and a refusal read on chain); `2` a file that
+  is not JSON or a `--now` that does not parse; `4` a check could not complete, `--onchain`
+  could not read the withdrawal, or `--onchain` did not confirm a key; `11` a bare passkey
   receipt (verify its bundle); `12` withdrawn on chain (authentic, no longer in force as
   given). See the exit table.
 
