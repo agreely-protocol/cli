@@ -180,6 +180,33 @@ describe("exit-code mapping (the agent contract)", () => {
     expect(JSON.parse(io.out())).toEqual({ decision: "deny", status: "revoked", consentRef: "0xdef" });
   });
 
+  it.each([
+    ["guardian_consent_missing", "concerns a minor under 14 and does not carry the consent of the person having parental authority"],
+    ["purpose_ended", "declared it no longer pursues this purpose"],
+  ])("a %s deny exits 10, and the human line prints its consentRef and one line of why", async (status, why) => {
+    const proof = { consentRef: "0xfeed", assurance: "citizen_signed", tier: "full", validUntil: "2027-01-01" };
+    h.checkDetailed.mockResolvedValue({ decision: "deny", status, ...proof, checkedAt: "t" });
+    const json = makeIo({ env: ENV });
+    expect(await run(argv("check", "c", "Cat", "Pur", "--json"), json.io)).toBe(EXIT.DENY);
+    expect(JSON.parse(json.out())).toEqual({ decision: "deny", status, ...proof });
+
+    const human = makeIo({ env: ENV, isTTY: true });
+    expect(await run(argv("check", "c", "Cat", "Pur"), human.io)).toBe(EXIT.DENY);
+    const [line, explanation] = human.out().split("\n");
+    expect(line).toContain(`✗ DENY`);
+    expect(line).toContain(`(${status})`);
+    expect(line).toContain("ref 0xfeed");
+    expect(explanation).toContain(why);
+  });
+
+  it("another deny keeps its one line, with no consentRef and no explanation", async () => {
+    h.checkDetailed.mockResolvedValue({ decision: "deny", status: "revoked", consentRef: "0xdef", checkedAt: "t" });
+    const human = makeIo({ env: ENV, isTTY: true });
+    expect(await run(argv("check", "c", "Cat", "Pur"), human.io)).toBe(EXIT.DENY);
+    expect(human.out().trim().split("\n")).toHaveLength(1);
+    expect(human.out()).not.toContain("0xdef");
+  });
+
   it("omits basis on a consent-backed allow (--json)", async () => {
     h.checkDetailed.mockResolvedValue(allow);
     const io = makeIo({ env: ENV });
@@ -1159,6 +1186,30 @@ describe("check --batch: batch mode via SDK checkBatch", () => {
     customerRef: "c2", category: "Phone", purpose: "Billing",
     decision: "deny", status: "none", checkedAt: "t",
   };
+
+  it("a purpose_ended or guardian_consent_missing cell exits 10, with its consentRef and one line of why", async () => {
+    const ended = { ...deny, status: "purpose_ended", consentRef: "0xe1", assurance: "company_attested", tier: "manual" };
+    const minor = { ...deny, customerRef: "c3", status: "guardian_consent_missing", consentRef: "0xe2", assurance: "citizen_signed", tier: "full" };
+    h.checkBatch.mockResolvedValue([allow, ended, minor]);
+    const batchFile = writeBatchFile([{ customerRef: "c1", category: "Email", purpose: "Marketing" }]);
+
+    const json = makeIo({ env: ENV });
+    expect(await run(argv("check", "--batch", batchFile, "--json"), json.io)).toBe(EXIT.DENY);
+    const out = JSON.parse(json.out().trim()) as Array<Record<string, unknown>>;
+    expect(out[1]).toMatchObject({ decision: "deny", status: "purpose_ended", consentRef: "0xe1" });
+    expect(out[2]).toMatchObject({ decision: "deny", status: "guardian_consent_missing", consentRef: "0xe2" });
+
+    const human = makeIo({ env: ENV, isTTY: true });
+    expect(await run(argv("check", "--batch", batchFile), human.io)).toBe(EXIT.DENY);
+    const lines = human.out().trim().split("\n");
+    expect(lines).toHaveLength(5);
+    expect(lines[1]).toContain("(purpose_ended)");
+    expect(lines[1]).toContain("ref 0xe1");
+    expect(lines[2]).toContain("declared it no longer pursues this purpose");
+    expect(lines[3]).toContain("(guardian_consent_missing)");
+    expect(lines[3]).toContain("ref 0xe2");
+    expect(lines[4]).toContain("concerns a minor under 14");
+  });
 
   it("all allow -> exit 0, emits JSON array in agent mode", async () => {
     h.checkBatch.mockResolvedValue([allow]);

@@ -16,6 +16,9 @@
 // resolves only when the company disclosed an English label, and ambiguous/undeclared
 // labels fail closed.
 //
+// A deny "guardian_consent_missing" or "purpose_ended" answers on a consent record still on file and never
+// withdrawn: the human line prints its consentRef and one line of why (--json carries both already). Exit 10.
+//
 // NECESSITY ALLOWS. An allow can carry status "necessity": there is NO signed consent
 // record, and the allow rests on a non-consent lawful basis the company DECLARED on the
 // catalog cell (contract / necessary_for_service / security_fraud / legal_obligation /
@@ -100,8 +103,9 @@ async function singleMode(
     emitLine(
       ctx,
       `${pc.red("✗ DENY")}   ${pc.bold(customerId)} · ${category} / ${purpose}  ` +
-        `${pc.dim(`(${result.status})`)}${proofLabel(proof)}`,
+        `${pc.dim(`(${result.status})`)}${proofLabel(proof)}${explainedRef(result)}`,
     );
+    explainDeny(ctx, result);
   }
 
   ctx.exit = allowed ? EXIT.OK : EXIT.DENY;
@@ -176,13 +180,36 @@ async function batchMode(ctx: Context, filePath: string): Promise<void> {
         emitLine(
           ctx,
           `${pc.red("✗ DENY")}   ${pc.bold(d.customerRef)} · ${d.category} / ${d.purpose}  ` +
-            `${pc.dim(`(${d.status})`)}${proofLabel(proofOf(d))}`,
+            `${pc.dim(`(${d.status})`)}${proofLabel(proofOf(d))}${explainedRef(d)}`,
         );
+        explainDeny(ctx, d);
       }
     }
   }
 
   ctx.exit = anyDeny ? EXIT.DENY : EXIT.OK;
+}
+
+/**
+ * The denies that answer on a consent record still on file, which was never withdrawn: one line each says why the
+ * record does not allow, and the consentRef names it. Any other deny prints as before.
+ */
+const EXPLAINED_DENIES: Readonly<Record<string, string>> = {
+  guardian_consent_missing:
+    "The recorded consent concerns a minor under 14 and does not carry the consent of the person having parental " +
+    "authority or of the tutor, so it is without effect. The record stays on file as recorded.",
+  purpose_ended:
+    "The company declared it no longer pursues this purpose, and this consent was given at or before that " +
+    "declaration. It was never withdrawn.",
+};
+
+function explainedRef(decision: CheckResult | BatchDecision): string {
+  return EXPLAINED_DENIES[decision.status] !== undefined && decision.consentRef ? pc.dim(` ref ${decision.consentRef}`) : "";
+}
+
+function explainDeny(ctx: Context, decision: CheckResult | BatchDecision): void {
+  const why = EXPLAINED_DENIES[decision.status];
+  if (why !== undefined) emitLine(ctx, `         ${why}`);
 }
 
 /** The DECLARED non-consent lawful basis behind a `status: "necessity"` allow, or undefined. */

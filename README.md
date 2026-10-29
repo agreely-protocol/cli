@@ -163,6 +163,17 @@ the per-cell consent stays truthfully active), `requires_depersonalization` and
 `basis_not_in_regime`. Treat any status you do not recognise as a deny and read
 `decision`, which is only ever `allow` or `deny`.
 
+Two denies answer on a consent record that is still on file and was never withdrawn.
+Both carry `consentRef`, `assurance`, `tier` and `validUntil`, exit `10`, and in human
+mode print the `consentRef` and one line of why:
+
+- `purpose_ended`: the company declared it no longer pursues this purpose, and this
+  consent was given at or before that declaration. A consent given after it answers on
+  its own state.
+- `guardian_consent_missing`: the recorded consent concerns a minor under 14 and does
+  not carry the consent of the person having parental authority or of the tutor, so it
+  is without effect. A lapsed one answers `expired`, a withdrawn one `revoked`.
+
 ### `check --batch`
 
 ```sh

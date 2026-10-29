@@ -27,6 +27,9 @@ Requires `@agreely/sdk` `^0.7.0`.
 - `verify --json` carries the SDK's `companyKeyRegistry`, `companyKey`, `citizenKeyChain`,
   `citizenKey`, `signedAnchor`, `disclosureGateway` and
   `consentAnchorCounts.anchorBatchRefs` unchanged.
+- `check` reads the `guardian_consent_missing` and `purpose_ended` denies: the human line
+  prints their `consentRef` and one line of why, in single and `--batch` mode. Both exit
+  `10`, and `--json` carries `consentRef`, `assurance`, `tier` and `validUntil`.
 
 ### Changed
 
