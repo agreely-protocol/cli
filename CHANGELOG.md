@@ -3,7 +3,7 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## 0.6.0 - Unreleased
+## 0.6.0 - 2026-10-29
 
 Requires `@agreely/sdk` `^0.7.0`.
 
