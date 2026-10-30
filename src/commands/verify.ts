@@ -172,7 +172,7 @@ function gatewayFlag(value: string): string {
   return gateway;
 }
 
-/** --doh-url: an http(s) URL, checked as --ipfs-gateway is, and passed to the SDK as given. */
+/** --doh-url: an https URL (DNS-over-HTTPS is HTTPS, RFC 8484), passed to the SDK as given. */
 function dohUrlFlag(value: string): string {
   const url = value.trim();
   let parsed: URL | null = null;
@@ -181,8 +181,8 @@ function dohUrlFlag(value: string): string {
   } catch {
     parsed = null;
   }
-  if (parsed === null || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-    throw new UsageError(`--doh-url "${value}" must be an http(s) URL: the DNS-over-HTTPS resolver to ask.`);
+  if (parsed === null || parsed.protocol !== "https:") {
+    throw new UsageError(`--doh-url "${value}" must be an https URL: the DNS-over-HTTPS resolver to ask (RFC 8484).`);
   }
   return url;
 }
@@ -328,11 +328,8 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
     emitLine(
       ctx,
       asked.onchain === true
-        ? `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED (--onchain): this file names no consent record this verifier reads on ` +
-          "chain (it reads one from a passkey consent's verification bundle, or from a version 4 paper or telephone " +
-          "receipt in its bundle), so whether the consent was since withdrawn is not proved and this exits 4. This is " +
-          "NOT a forgery, and retrying will not change it."
-        : `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED: this verify did not read the chain, so it says nothing of a ` +
+        ? onchainWithdrawalLine(r)
+        :`  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED: this verify did not read the chain, so it says nothing of a ` +
           "withdrawal since the consent was given. For a passkey consent's verification bundle, or a version 4 paper " +
           "or telephone receipt in its bundle, add " +
           "--onchain --rpc-url https://base-rpc.publicnode.com to read it.",
@@ -342,6 +339,22 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
   for (const note of r.notes) {
     emitLine(ctx, `  ${pc.dim("·")} ${note}`);
   }
+}
+
+/**
+ * The --onchain withdrawal hint. A departed issuer's consent was read on chain, so the hint says the record was read and
+ * the issuer departed: the SDK reads the withdrawal not checked there, and the hint must not say no record was read.
+ */
+function onchainWithdrawalLine(r: ReceiptVerification): string {
+  if (r.issuerDeparture !== undefined) {
+    return `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED (--onchain): the consent record was read, but the issuer has departed, ` +
+      "so whether the consent was since withdrawn cannot be proved and this exits 4. This is NOT a forgery, and " +
+      "retrying will not change it.";
+  }
+  return `  ${pc.yellow("!")} WITHDRAWAL NOT CHECKED (--onchain): this file names no consent record this verifier reads on ` +
+    "chain (it reads one from a passkey consent's verification bundle, or from a version 4 paper or telephone " +
+    "receipt in its bundle), so whether the consent was since withdrawn is not proved and this exits 4. This is " +
+    "NOT a forgery, and retrying will not change it.";
 }
 
 function registryRefused(r: ReceiptVerification): boolean {

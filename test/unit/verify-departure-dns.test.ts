@@ -237,7 +237,7 @@ describe("the flags, one by one", () => {
     });
   });
 
-  it.each([["ftp://dns.example/dns-query"], ["not a url"], ["dns.example/dns-query"]])(
+  it.each([["ftp://dns.example/dns-query"], ["http://dns.example/dns-query"], ["not a url"], ["dns.example/dns-query"]])(
     "--doh-url %s is refused before any request is sent",
     async (value) => {
       const asked = stubFetch({});
@@ -246,6 +246,22 @@ describe("the flags, one by one", () => {
       expect(asked).toEqual([]);
     },
   );
+});
+
+describe("the --onchain withdrawal hint for a departed issuer", () => {
+  it("says the record was read and the issuer departed, not that no consent record is named, and exits 4", async () => {
+    const departed = DEPARTURE.cases.find(
+      (c) => c.name === "before, under a key the registry confirms: the consent stops reading active",
+    )!;
+    await withChain(departed.answers ?? {}, async (chain) => {
+      stubFetch(departed.http);
+      const docs = await didDocFlags(departed.documents, departed.issuerDocument, "hint-departure");
+      const { human } = await verify(fixture(`vectors/${departed.file}`), ...docs, "--onchain", "--rpc-url", chain.url);
+      expect(human.code).toBe(EXIT.UNAVAILABLE);
+      expect(human.out).toContain("the consent record was read, but the issuer has departed");
+      expect(human.out).not.toContain("names no consent record");
+    });
+  });
 });
 
 describe("the matrix rows", () => {

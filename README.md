@@ -452,7 +452,7 @@ confirm, or a date outside either window, exits `6`.
   party. The matrix prints a `liveDns` line (`confirmed`, `not-declared`, `not-resolvable`,
   `unreachable`) with the domain, the key compared (the key the registry names today, not
   necessarily the signing key) and the resolver. It never changes the verdict or the exit
-  code. `--doh-url <url>` names another resolver (http or https, checked as
+  code. `--doh-url <url>` names another resolver (https only, checked as
   `--ipfs-gateway` is); `--no-dns` turns the read off, and then no DNS resolver is asked.
   Without `--onchain` nothing is read in DNS.
 - `--json` passes the SDK's result through unchanged, `companyKeyRegistry`, `companyKey`,
