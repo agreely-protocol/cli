@@ -3,6 +3,33 @@
 All notable changes to `@agreely/cli` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## 0.7.0 - 2026-10-30
+
+Requires `@agreely/sdk` `^0.8.0`.
+
+### Added
+
+- `verify` prints an `issuerDeparture` line when the issuer's DID document says it is
+  deactivated: the departure record's state (`departed`, `unreachable` or `unreadable`), its
+  `sealedOn` and `purgedOn` days, and where the signing instant falls (`before`, `during`,
+  `after` or `unknown`). The record is read from the issuer's own host.
+- `verify --onchain` prints a `liveDns` line: the company domain's `_agreely` TXT record,
+  read over DNS-over-HTTPS and compared with the company key the registry names today
+  (`confirmed`, `not-declared`, `not-resolvable` or `unreachable`). It never changes the
+  verdict or the exit code. The resolver is `cloudflare-dns.com` unless `--doh-url` names
+  another.
+- `verify --no-departure` asks for no departure record, `verify --no-dns` asks for no DNS
+  record, and `verify --doh-url <url>` names the DNS-over-HTTPS resolver.
+- `verify --json` carries `issuerDeparture`, `departure` and `liveDns` unchanged.
+
+### Changed
+
+- A receipt signed before or during its issuer's departure, under a company key the chain
+  confirms, reads its withdrawal as not checked: the chain can no longer say whether the
+  consent is in force. With `--onchain` it exits `4`, as the existing withdrawal rule does.
+- A departure dated after its purge reads `failed` and exits `6`, through `overall`. No
+  exit code was added.
+
 ## 0.6.0 - 2026-10-29
 
 Requires `@agreely/sdk` `^0.7.0`.

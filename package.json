@@ -1,6 +1,6 @@
 {
   "name": "@agreely/cli",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "The Agreely CLI: a one-call consent gate for humans (interactive) and agents (scriptable JSON). A thin shell over @agreely/sdk.",
   "license": "MIT",
   "repository": {
