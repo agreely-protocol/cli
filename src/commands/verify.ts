@@ -1,6 +1,7 @@
 // agreely verify <bundle-or-receipt.json> [--onchain] [--ipfs] [--rpc-url <url>]
 //                                        [--did-doc <file>...] [--ipfs-gateway <url>...]
-//                                        [--now <ISO-8601>] [--json]
+//                                        [--now <ISO-8601>] [--no-departure] [--no-dns]
+//                                        [--doh-url <url>] [--json]
 //
 // THE headline: verify a consent OFFLINE-FIRST and print the honesty matrix,
 // exactly what is PROVED vs merely trusted. The file is the verification bundle a
@@ -46,6 +47,12 @@ export interface VerifyFlags {
   ipfsGateway?: string[];
   /** The verifier's clock, an RFC 3339 instant with an offset (the SDK's `now`). */
   now?: string;
+  /** false: do not read the departure record of a deactivated issuer (the SDK's `checkDeparture`). */
+  checkDeparture?: boolean;
+  /** false: do not read the company domain's live DNS declaration (the SDK's `checkDns`). */
+  checkDns?: boolean;
+  /** The DNS-over-HTTPS resolver for the live DNS read (the SDK's `dohUrl`). */
+  dohUrl?: string;
 }
 
 export async function verifyCommand(ctx: Context, path: string, flags: VerifyFlags): Promise<void> {
@@ -82,6 +89,10 @@ export async function verifyCommand(ctx: Context, path: string, flags: VerifyFla
     const now = clockFlag(flags.now);
     opts.now = () => now;
   }
+
+  if (flags.checkDeparture === false) opts.checkDeparture = false;
+  if (flags.checkDns === false) opts.checkDns = false;
+  if (flags.dohUrl !== undefined) opts.dohUrl = dohUrlFlag(flags.dohUrl);
 
   const result: ReceiptVerification = await Agreely.verifyReceipt(receipt, opts);
 
@@ -161,6 +172,21 @@ function gatewayFlag(value: string): string {
   return gateway;
 }
 
+/** --doh-url: an http(s) URL, checked as --ipfs-gateway is, and passed to the SDK as given. */
+function dohUrlFlag(value: string): string {
+  const url = value.trim();
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(url);
+  } catch {
+    parsed = null;
+  }
+  if (parsed === null || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+    throw new UsageError(`--doh-url "${value}" must be an http(s) URL: the DNS-over-HTTPS resolver to ask.`);
+  }
+  return url;
+}
+
 /** --now as milliseconds since the epoch, the unit of the SDK's `now`. */
 function clockFlag(value: string): number {
   const instant = assertInstant(value.trim(), "--now");
@@ -206,7 +232,9 @@ function printMatrix(ctx: Context, r: ReceiptVerification, asked: Pick<VerifyFla
                 : pc.red("✗ FAILED");
   emitLine(ctx, `${verdict}  ${pc.dim(`(${r.receiptType}, read as a ${r.input})`)}`);
   emitLine(ctx, `  companySignature  ${statusLabel(r.companySignature)}`);
+  if (r.issuerDeparture !== undefined) emitLine(ctx, `  issuerDeparture   ${statusLabel(r.issuerDeparture)}  ${departureLine(r)}`);
   if (asked.onchain === true) emitLine(ctx, `  companyKey        ${companyKeyLine(r)}`);
+  if (r.liveDns !== undefined) emitLine(ctx, `  liveDns           ${liveDnsLine(r.liveDns)}`);
   emitLine(ctx, `  receiptIntegrity  ${statusLabel(r.receiptIntegrity)}`);
   emitLine(ctx, `  citizenAssertion  ${statusLabel(r.citizenAssertion)}`);
   if (asked.onchain === true && r.citizenKeyChain !== undefined) emitLine(ctx, `  citizenKey        ${citizenKeyLine(r)}`);
@@ -407,6 +435,28 @@ function companyKeyLine(r: ReceiptVerification): string {
   const domain = k.domain !== "" ? ` (${k.domain})` : "";
   const rotated = k.rotated === true ? ", and the company has since rotated to another key" : "";
   return `${statusLabel(r.companyKeyRegistry ?? "skipped")}  ${k.verdict}: ${COMPANY_KEY_READINGS[k.verdict] ?? k.verdict}${domain}${rotated}`;
+}
+
+/** Where the signing instant falls against the issuer's departure, beside the record's own dates. */
+const DEPARTURE_PHASE_READINGS: Readonly<Record<string, string>> = {
+  before: "signed before the departure",
+  during: "signed during the departure",
+  after: "signed after the departure",
+  unknown: "the signing instant cannot be read",
+};
+
+function departureLine(r: ReceiptVerification): string {
+  const d = r.departure;
+  if (d === undefined) return pc.dim("not read");
+  const dates = d.sealedOn !== undefined && d.purgedOn !== undefined ? ` (sealed ${d.sealedOn}, purged ${d.purgedOn})` : "";
+  const phase = d.phase !== undefined ? `, ${DEPARTURE_PHASE_READINGS[d.phase] ?? d.phase}` : "";
+  return `${d.state}${dates}${phase}`;
+}
+
+/** The live DNS declaration: its status, the domain, the key compared and the resolver asked. */
+function liveDnsLine(d: NonNullable<ReceiptVerification["liveDns"]>): string {
+  const label = d.status === "confirmed" ? pc.green(d.status) : pc.yellow(d.status);
+  return `${label}  ${d.domain}  key ${d.keyId}  via ${d.resolver}`;
 }
 
 function citizenKeyLine(r: ReceiptVerification): string {

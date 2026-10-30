@@ -73,6 +73,12 @@ agreely check cust-42 "Email Address" "Marketing Outreach" --json
 | `11` | `verify`: **incomplete** - a bare passkey receipt cannot be tied to the offer it answers. Verify the consent bundle (receipt + signed offer) instead. Not a tamper, never a success |
 | `12` | `verify` with `--onchain`: **withdrawn**. The receipt itself is still cryptographically authentic (it proves consent was given), but the chain shows it has since been withdrawn, for all of its purposes or some (`consentAnchorRecords` says which, with `revokedAt`). The matrix says `WITHDRAWN`. Not a tamper, never a success |
 
+`verify` adds no exit code for the issuer's departure or the live DNS declaration. A
+departure with the signing instant after the purge reads `issuerDeparture: "fail"`, which
+makes `overall` `failed` (exit `6`). A departure record that cannot be read
+(`issuerDeparture: "unavailable"`) and every `liveDns` status (`confirmed`, `not-declared`,
+`not-resolvable`, `unreachable`) leave the exit code as it is without them.
+
 `check` resolves ALLOW→`0` and DENY→`10`. The CLI is **fail-closed**: on an
 outage the SDK throws and the CLI exits `4`, so a caller can tell "outage" from
 "denied". A lapsed **company** subscription is a `402` that exits `7` (its
@@ -432,9 +438,26 @@ confirm, or a date outside either window, exits `6`.
   why, when none did.
 - `--now <ISO-8601>` pins the verifier's clock to an instant with an offset
   (`2026-10-29T12:00:00Z`). An instant that does not parse exits `2`.
+- **Issuer departure.** When the issuer's DID document says it is deactivated (the issuer
+  left Agreely), the verifier reads the departure record beside it, from the issuer's own
+  host (`https://<host>/c/<slug>/departure.json`). The matrix prints an `issuerDeparture`
+  line (`pass` before or during the departure, `fail` when the receipt is dated after the
+  purge, `unavailable` when the record cannot be read) with the record's state, its
+  `sealedOn` and `purgedOn` days and where the signing instant falls. `--no-departure`
+  asks for no record. A receipt signed before or during a departure, under a company key
+  the chain confirms, reads `withdrawal: "not_checked"` (the chain can no longer say
+  whether the consent is in force), so with `--onchain` it exits `4`.
+- **Live DNS declaration.** With `--onchain`, the company domain's `_agreely` TXT record
+  is read over DNS-over-HTTPS. By default that resolver is `cloudflare-dns.com`, a third
+  party. The matrix prints a `liveDns` line (`confirmed`, `not-declared`, `not-resolvable`,
+  `unreachable`) with the domain, the key compared (the key the registry names today, not
+  necessarily the signing key) and the resolver. It never changes the verdict or the exit
+  code. `--doh-url <url>` names another resolver (http or https, checked as
+  `--ipfs-gateway` is); `--no-dns` turns the read off, and then no DNS resolver is asked.
+  Without `--onchain` nothing is read in DNS.
 - `--json` passes the SDK's result through unchanged, `companyKeyRegistry`, `companyKey`,
-  `citizenKeyChain`, `citizenKey`, `signedAnchor`, `disclosureGateway` and
-  `consentAnchorCounts.anchorBatchRefs` included.
+  `citizenKeyChain`, `citizenKey`, `signedAnchor`, `disclosureGateway`, `issuerDeparture`,
+  `departure`, `liveDns` and `consentAnchorCounts.anchorBatchRefs` included.
 - `--onchain` reads only the Base mainnet registry. A bundle whose issuer key delegation
   names another registry or chain (a bundle anchored on Base Sepolia, for one) is refused
   before any call when a check would read the chain: a receipt with a `document.ipfsCid`, or
@@ -542,7 +565,11 @@ MIT-licensed and built to be provable, not just trusted:
 - **No telemetry, no analytics, no phone-home.** The CLI ships no trackers and
   collects nothing. It makes **no** network calls of its own - every request goes
   through `@agreely/sdk`, to the Agreely API base URL you configure (default
-  `https://api.agreely.ca`).
+  `https://api.agreely.ca`). `verify` also reaches the hosts the SDK names for its opt-in
+  checks: an IPFS gateway with `--ipfs`, the RPC you pass with `--onchain`, the issuer's own
+  host for its departure record (`--no-departure` turns it off) and, with `--onchain`, the
+  DNS-over-HTTPS resolver `cloudflare-dns.com` (`--doh-url` names another, `--no-dns` turns
+  the read off).
 - **Credentials stay local.** An API key comes from a flag, `AGREELY_API_KEY`,
   the OS keychain (optional `keytar`), or a `0600` config file, and is sent only
   as the `Authorization: Bearer` header to your configured API. It is never

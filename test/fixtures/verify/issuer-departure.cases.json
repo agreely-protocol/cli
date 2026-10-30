@@ -1,0 +1,239 @@
+{
+  "source": "agreely-sdk vectors/issuer-departure.json at 0.8.0 (18ab9a9): these cases copied verbatim, selected by name, never regenerated",
+  "cases": [
+    {
+      "name": "signed before the departure: the signature stands",
+      "file": "receipts/a3v4.bundle.json",
+      "documents": "receipts/v4-did-documents.json",
+      "issuerDocument": {
+        "deactivated": true,
+        "deactivatedOn": "2026-08-01"
+      },
+      "http": {
+        "https://verify.agreely.ca/c/demo-co/departure.json": {
+          "status": 200,
+          "body": {
+            "schema": "agreely.departure.v1",
+            "did": "did:web:verify.agreely.ca:c:demo-co",
+            "sealedOn": "2026-07-01",
+            "purgedOn": "2026-08-01",
+            "statementSha256": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "status": "purged",
+            "root": "0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+          }
+        }
+      },
+      "answers": null,
+      "options": {},
+      "expect": {
+        "overall": "verified",
+        "companySignature": "pass",
+        "withdrawal": "not_checked",
+        "issuerDeparture": "pass",
+        "departure": {
+          "state": "departed",
+          "url": "https://verify.agreely.ca/c/demo-co/departure.json",
+          "sealedOn": "2026-07-01",
+          "purgedOn": "2026-08-01",
+          "phase": "before"
+        }
+      },
+      "asked": [
+        "https://verify.agreely.ca/c/demo-co/departure.json"
+      ]
+    },
+    {
+      "name": "signed during the departure: the signature stands",
+      "file": "receipts/a3v4.bundle.json",
+      "documents": "receipts/v4-did-documents.json",
+      "issuerDocument": {
+        "deactivated": true,
+        "deactivatedOn": "2026-08-01"
+      },
+      "http": {
+        "https://verify.agreely.ca/c/demo-co/departure.json": {
+          "status": 200,
+          "body": {
+            "schema": "agreely.departure.v1",
+            "did": "did:web:verify.agreely.ca:c:demo-co",
+            "sealedOn": "2026-06-01",
+            "purgedOn": "2026-07-01",
+            "statementSha256": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "status": "purged",
+            "root": "0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+          }
+        }
+      },
+      "answers": null,
+      "options": {},
+      "expect": {
+        "overall": "verified",
+        "issuerDeparture": "pass",
+        "departure": {
+          "state": "departed",
+          "url": "https://verify.agreely.ca/c/demo-co/departure.json",
+          "sealedOn": "2026-06-01",
+          "purgedOn": "2026-07-01",
+          "phase": "during"
+        }
+      },
+      "asked": [
+        "https://verify.agreely.ca/c/demo-co/departure.json"
+      ]
+    },
+    {
+      "name": "dated after the purge: failed",
+      "file": "receipts/a3v4.bundle.json",
+      "documents": "receipts/v4-did-documents.json",
+      "issuerDocument": {
+        "deactivated": true,
+        "deactivatedOn": "2026-08-01"
+      },
+      "http": {
+        "https://verify.agreely.ca/c/demo-co/departure.json": {
+          "status": 200,
+          "body": {
+            "schema": "agreely.departure.v1",
+            "did": "did:web:verify.agreely.ca:c:demo-co",
+            "sealedOn": "2026-05-01",
+            "purgedOn": "2026-05-31",
+            "statementSha256": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "status": "purged",
+            "root": "0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+          }
+        }
+      },
+      "answers": null,
+      "options": {},
+      "expect": {
+        "overall": "failed",
+        "companySignature": "pass",
+        "receiptIntegrity": "pass",
+        "issuerDeparture": "fail",
+        "departure": {
+          "state": "departed",
+          "url": "https://verify.agreely.ca/c/demo-co/departure.json",
+          "sealedOn": "2026-05-01",
+          "purgedOn": "2026-05-31",
+          "phase": "after"
+        }
+      },
+      "asked": [
+        "https://verify.agreely.ca/c/demo-co/departure.json"
+      ]
+    },
+    {
+      "name": "before, under a key the registry confirms: the consent stops reading active",
+      "file": "receipts/a3v4.bundle.json",
+      "documents": "receipts/v4-did-documents.json",
+      "issuerDocument": {
+        "deactivated": true,
+        "deactivatedOn": "2026-08-01"
+      },
+      "http": {
+        "https://verify.agreely.ca/c/demo-co/departure.json": {
+          "status": 200,
+          "body": {
+            "schema": "agreely.departure.v1",
+            "did": "did:web:verify.agreely.ca:c:demo-co",
+            "sealedOn": "2026-07-01",
+            "purgedOn": "2026-08-01",
+            "statementSha256": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "status": "purged",
+            "root": "0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+          }
+        }
+      },
+      "answers": {
+        "registry": {
+          "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1": "0x5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e000000000000000000000000000000000000000000000000000000006a1ea9a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000001c9c380",
+          "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2": "0x5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e000000000000000000000000000000000000000000000000000000006a1ea9a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000001c9c380"
+        },
+        "companyKeyOf": "0x000000000000000000000000000000000000000000000000000000006a1d4a10000000000000000000000000000000000000000000000000000000006a1d4ba000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "options": {},
+      "expect": {
+        "overall": "verified",
+        "companyKeyRegistry": "pass",
+        "consentAnchor": "pass",
+        "withdrawal": "not_checked",
+        "issuerDeparture": "pass",
+        "departure": {
+          "state": "departed",
+          "url": "https://verify.agreely.ca/c/demo-co/departure.json",
+          "sealedOn": "2026-07-01",
+          "purgedOn": "2026-08-01",
+          "phase": "before"
+        }
+      },
+      "asked": [
+        "https://verify.agreely.ca/c/demo-co/departure.json"
+      ]
+    },
+    {
+      "name": "a departure record that cannot be read changes nothing",
+      "file": "receipts/a3v4.bundle.json",
+      "documents": "receipts/v4-did-documents.json",
+      "issuerDocument": {
+        "deactivated": true,
+        "deactivatedOn": "2026-08-01"
+      },
+      "http": {
+        "https://verify.agreely.ca/c/demo-co/departure.json": {
+          "status": 404,
+          "body": {
+            "error": "not found"
+          }
+        }
+      },
+      "answers": null,
+      "options": {},
+      "expect": {
+        "overall": "verified",
+        "issuerDeparture": "unavailable",
+        "departure": {
+          "state": "unreachable",
+          "url": "https://verify.agreely.ca/c/demo-co/departure.json"
+        }
+      },
+      "asked": [
+        "https://verify.agreely.ca/c/demo-co/departure.json"
+      ]
+    },
+    {
+      "name": "checkDeparture false asks for nothing",
+      "file": "receipts/a3v4.bundle.json",
+      "documents": "receipts/v4-did-documents.json",
+      "issuerDocument": {
+        "deactivated": true,
+        "deactivatedOn": "2026-08-01"
+      },
+      "http": {
+        "https://verify.agreely.ca/c/demo-co/departure.json": {
+          "status": 200,
+          "body": {
+            "schema": "agreely.departure.v1",
+            "did": "did:web:verify.agreely.ca:c:demo-co",
+            "sealedOn": "2026-05-01",
+            "purgedOn": "2026-05-31",
+            "statementSha256": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "status": "purged",
+            "root": "0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+          }
+        }
+      },
+      "answers": null,
+      "options": {
+        "checkDeparture": false
+      },
+      "expect": {
+        "overall": "verified",
+        "absent": [
+          "issuerDeparture",
+          "departure"
+        ]
+      },
+      "asked": []
+    }
+  ]
+}

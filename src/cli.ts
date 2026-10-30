@@ -285,11 +285,33 @@ export async function run(
         "--now <ISO-8601>",
         "pin the verifier's clock to an instant with an offset (2026-10-29T12:00:00Z); with --onchain it tells a " +
           "person's key not recorded yet from one still not recorded 72 hours after grantedAt",
+      )
+      .option(
+        "--no-departure",
+        "do not read the departure record of a deactivated issuer (no request to the issuer's host)",
+      )
+      .option(
+        "--no-dns",
+        "do not read the company domain's live DNS declaration (no request to the DNS-over-HTTPS resolver)",
+      )
+      .option(
+        "--doh-url <url>",
+        "with --rpc-url: the DNS-over-HTTPS resolver for the live DNS read (default https://cloudflare-dns.com/dns-query)",
       ),
   ).action(
     async (
       path: string,
-      opts: { ipfs?: boolean; onchain?: boolean; rpcUrl?: string; didDoc?: string[]; ipfsGateway?: string[]; now?: string },
+      opts: {
+        ipfs?: boolean;
+        onchain?: boolean;
+        rpcUrl?: string;
+        didDoc?: string[];
+        ipfsGateway?: string[];
+        now?: string;
+        departure?: boolean;
+        dns?: boolean;
+        dohUrl?: string;
+      },
       cmd: Command,
     ) => {
       await verifyCommand(ctxFor(cmd), path, {
@@ -299,6 +321,9 @@ export async function run(
         ...(opts.didDoc !== undefined && opts.didDoc.length > 0 ? { didDoc: opts.didDoc } : {}),
         ...(opts.ipfsGateway !== undefined && opts.ipfsGateway.length > 0 ? { ipfsGateway: opts.ipfsGateway } : {}),
         ...(opts.now !== undefined ? { now: opts.now } : {}),
+        ...(opts.departure === false ? { checkDeparture: false } : {}),
+        ...(opts.dns === false ? { checkDns: false } : {}),
+        ...(opts.dohUrl !== undefined ? { dohUrl: opts.dohUrl } : {}),
       });
     },
   );
